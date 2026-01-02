@@ -8,6 +8,7 @@ class PageLayoutEngine {
   static const double pageMargin = 40.0;
   static const double contentWidth = AppConstants.a4Width - (pageMargin * 2);
   static const double contentHeight = AppConstants.a4Height - (pageMargin * 2);
+  static const double pageBottomLimit = AppConstants.a4Height - pageMargin;
 
   /// Checks if a text block overflows the current page
   static bool checkOverflow(TextBlock block) {
@@ -21,19 +22,18 @@ class PageLayoutEngine {
       textDirection: TextDirection.ltr,
     );
     textPainter.layout(maxWidth: block.width);
-
     final blockHeight = textPainter.height;
 
     // Check if bottom of block exceeds page writable area
-    return (block.y + blockHeight) > contentHeight;
+    return (block.y + blockHeight) > pageBottomLimit;
   }
 
   /// Splits a text block into two parts:
   /// Part 1: Fits on current page
   /// Part 2: Remainder (for next page)
   static Map<String, TextBlock> splitBlock(TextBlock block) {
-    // 1. Calculate space remaining
-    final double spaceRemaining = contentHeight - block.y;
+    // 1. Calculate space remaining based on absolute coordinates
+    final double spaceRemaining = pageBottomLimit - block.y;
 
     if (spaceRemaining <= 0) {
       // Entire block moves

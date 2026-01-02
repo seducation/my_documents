@@ -474,7 +474,7 @@ class NoteImage {
 }
 
 class DrawingStroke {
-  final List<Offset> points;
+  final List<DrawingPoint> points;
   final Color color;
   final double strokeWidth;
 
@@ -486,7 +486,7 @@ class DrawingStroke {
 
   Map<String, dynamic> toJson() {
     return {
-      'points': points.map((p) => {'dx': p.dx, 'dy': p.dy}).toList(),
+      'points': points.map((p) => p.toJson()).toList(),
       'color': color.toARGB32(),
       'strokeWidth': strokeWidth,
     };
@@ -495,11 +495,33 @@ class DrawingStroke {
   factory DrawingStroke.fromJson(Map<String, dynamic> json) {
     return DrawingStroke(
       points: (json['points'] as List)
-          .map((p) =>
-              Offset((p['dx'] as num).toDouble(), (p['dy'] as num).toDouble()))
+          .map((p) => DrawingPoint.fromJson(p as Map<String, dynamic>))
           .toList(),
       color: Color(json['color'] as int),
-      strokeWidth: json['strokeWidth'] as double,
+      strokeWidth: (json['strokeWidth'] as num).toDouble(),
+    );
+  }
+}
+
+class DrawingPoint {
+  final Offset offset;
+  final double pressure;
+
+  DrawingPoint({required this.offset, this.pressure = 1.0});
+
+  Map<String, dynamic> toJson() {
+    return {
+      'dx': offset.dx,
+      'dy': offset.dy,
+      'pressure': pressure,
+    };
+  }
+
+  factory DrawingPoint.fromJson(Map<String, dynamic> json) {
+    return DrawingPoint(
+      offset: Offset(
+          (json['dx'] as num).toDouble(), (json['dy'] as num).toDouble()),
+      pressure: (json['pressure'] as num? ?? 1.0).toDouble(),
     );
   }
 }

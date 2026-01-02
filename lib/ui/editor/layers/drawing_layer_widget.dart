@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:provider/provider.dart';
 import '../../../constants.dart';
 import '../../../models/note_model.dart';
@@ -16,14 +17,13 @@ class DrawingLayerWidget extends StatefulWidget {
 }
 
 class _DrawingLayerWidgetState extends State<DrawingLayerWidget> {
-  // Temporary storage for current stroke being drawn (before added to model)
-  List<Offset>? _currentStrokePoints;
+  List<DrawingPoint>? _currentStrokePoints;
+  bool _isUsingStylus = false;
 
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<EditorProvider>();
-    final activeLayerIndex = provider.activeLayerIndex;
-    final isActive = activeLayerIndex == 3; // Drawing is 3
+    final isActive = provider.activeLayerIndex == 3;
     final activeTool = provider.activeTool;
 
     final double displayOpacity =
@@ -33,40 +33,60 @@ class _DrawingLayerWidgetState extends State<DrawingLayerWidget> {
       ignoring: !isActive,
       child: Opacity(
         opacity: displayOpacity,
-        child: GestureDetector(
-          onPanStart: (details) {
+        child: Listener(
+          onPointerDown: (event) {
             if (!isActive) return;
+
+            // Palm Rejection Logic: If we see a stylus, we flag it.
+            // If we are using a stylus and see a touch, we might want to ignore it.
+            if (event.kind == PointerDeviceKind.stylus) {
+              _isUsingStylus = true;
+            } else if (event.kind == PointerDeviceKind.touch &&
+                _isUsingStylus) {
+              // Ignore touch if stylus is active (crude palm rejection)
+              return;
+            }
+
             final RenderBox box = context.findRenderObject() as RenderBox;
-            final point = box.globalToLocal(details.globalPosition);
+            final offset = box.globalToLocal(event.position);
+            final point =
+                DrawingPoint(offset: offset, pressure: event.pressure);
 
             if (activeTool == EditorTool.pen) {
               setState(() {
                 _currentStrokePoints = [point];
               });
             } else if (activeTool == EditorTool.eraser) {
-              _eraseAt(point);
+              _eraseAt(offset);
             }
           },
-          onPanUpdate: (details) {
+          onPointerMove: (event) {
             if (!isActive) return;
+            if (event.kind == PointerDeviceKind.touch && _isUsingStylus) return;
+
             final RenderBox box = context.findRenderObject() as RenderBox;
-            final point = box.globalToLocal(details.globalPosition);
+            final offset = box.globalToLocal(event.position);
+            final point =
+                DrawingPoint(offset: offset, pressure: event.pressure);
 
             if (activeTool == EditorTool.pen) {
               setState(() {
                 _currentStrokePoints?.add(point);
               });
             } else if (activeTool == EditorTool.eraser) {
-              _eraseAt(point);
+              _eraseAt(offset);
             }
           },
-          onPanEnd: (details) {
+          onPointerUp: (event) {
             if (activeTool == EditorTool.pen && _currentStrokePoints != null) {
-              // Commit stroke to model
               _addStrokeToModel(provider);
               setState(() {
                 _currentStrokePoints = null;
               });
+            }
+            if (event.kind == PointerDeviceKind.stylus) {
+              // Reset stylus flag after some timeout or on specific conditions?
+              // For now, let's keep it until touch is clearly intentional.
             }
           },
           child: CustomPaint(
@@ -100,13 +120,10 @@ class _DrawingLayerWidgetState extends State<DrawingLayerWidget> {
 
   void _eraseAt(Offset point) {
     const double eraseRadius = 20.0;
-    // Naive erasure: remove any stroke that has a point within eraseRadius
-    // For MVP this is acceptable. Optimized approach uses QuadTree or bitmap masking.
-
     final newStrokes = widget.layer.strokes.where((stroke) {
       for (final p in stroke.points) {
-        if ((p - point).distance < eraseRadius) {
-          return false; // Remove this stroke
+        if ((p.offset - point).distance < eraseRadius) {
+          return false;
         }
       }
       return true;
@@ -121,57 +138,55 @@ class _DrawingLayerWidgetState extends State<DrawingLayerWidget> {
 
 class _StrokesPainter extends CustomPainter {
   final List<DrawingStroke> strokes;
-  final List<Offset>? currentStroke;
+  final List<DrawingPoint>? currentStroke;
   final Color currentColor;
   final double currentWidth;
 
-  _StrokesPainter(
-      {required this.strokes,
-      this.currentStroke,
-      required this.currentColor,
-      required this.currentWidth});
+  _StrokesPainter({
+    required this.strokes,
+    this.currentStroke,
+    required this.currentColor,
+    required this.currentWidth,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
-    // 1. Draw existing strokes
     for (final stroke in strokes) {
-      final paint = Paint()
-        ..color = stroke.color
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = stroke.strokeWidth;
-
-      if (stroke.points.isNotEmpty) {
-        final path = Path();
-        path.moveTo(stroke.points.first.dx, stroke.points.first.dy);
-        for (int i = 1; i < stroke.points.length; i++) {
-          path.lineTo(stroke.points[i].dx, stroke.points[i].dy);
-        }
-        canvas.drawPath(path, paint);
-      }
+      _drawStroke(canvas, stroke.points, stroke.color, stroke.strokeWidth);
     }
 
-    // 2. Draw current stroke (if drawing)
     if (currentStroke != null && currentStroke!.isNotEmpty) {
-      final paint = Paint()
-        ..color = currentColor
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = currentWidth;
+      _drawStroke(canvas, currentStroke!, currentColor, currentWidth);
+    }
+  }
 
-      final path = Path();
-      path.moveTo(currentStroke!.first.dx, currentStroke!.first.dy);
-      for (int i = 1; i < currentStroke!.length; i++) {
-        path.lineTo(currentStroke![i].dx, currentStroke![i].dy);
-      }
-      canvas.drawPath(path, paint);
+  void _drawStroke(
+      Canvas canvas, List<DrawingPoint> points, Color color, double baseWidth) {
+    if (points.isEmpty) return;
+
+    final paint = Paint()
+      ..color = color
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..style = PaintingStyle.stroke;
+
+    if (points.length == 1) {
+      paint.strokeWidth = baseWidth * points[0].pressure;
+      canvas.drawCircle(points[0].offset, paint.strokeWidth / 2, paint);
+      return;
+    }
+
+    // Draw segment by segment to respect pressure
+    for (int i = 0; i < points.length - 1; i++) {
+      final p1 = points[i];
+      final p2 = points[i + 1];
+
+      // Interpolate width based on pressure
+      paint.strokeWidth = baseWidth * ((p1.pressure + p2.pressure) / 2);
+      canvas.drawLine(p1.offset, p2.offset, paint);
     }
   }
 
   @override
-  bool shouldRepaint(covariant _StrokesPainter oldDelegate) {
-    return true; // Simple invalidation for MVP. Optimizing RepaintBoundary handles mostly.
-  }
+  bool shouldRepaint(covariant _StrokesPainter oldDelegate) => true;
 }

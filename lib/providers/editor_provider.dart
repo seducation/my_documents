@@ -43,6 +43,13 @@ class EditorProvider extends ChangeNotifier {
 
   // --- Initialization ---
 
+  void setActiveDocument(NoteDocument doc) {
+    _activeDocument = doc;
+    _activePageId = doc.pages.isNotEmpty ? doc.pages.first.id : null;
+    _activeLayerIndex = 1;
+    notifyListeners();
+  }
+
   void createNewDocument() {
     _activeDocument = NoteDocument.create();
     _activePageId = _activeDocument!.pages.first.id;
@@ -158,7 +165,7 @@ class EditorProvider extends ChangeNotifier {
 
     // 1. Update Source Page (with truncated block)
     final sourcePage = _activeDocument!.pages[sourcePageIndex];
-    final sourceTextLayerIndex = 1; // Assuming Text is index 1
+    const sourceTextLayerIndex = 1;
 
     final sourceTextLayer =
         sourcePage.layers[sourceTextLayerIndex] as TextLayer;
@@ -175,36 +182,20 @@ class EditorProvider extends ChangeNotifier {
     // 2. Handle Target Page (Next Page)
     int targetPageIndex = sourcePageIndex + 1;
     List<NotePage> newPagesList = List.from(_activeDocument!.pages);
-    newPagesList[sourcePageIndex] = updatedSourcePage; // Apply source update
+    newPagesList[sourcePageIndex] = updatedSourcePage;
 
-    NotePage targetPage;
     if (targetPageIndex >= newPagesList.length) {
-      // Create new page
-      targetPage = NotePage.create(targetPageIndex);
-      newPagesList.add(targetPage);
-    } else {
-      targetPage = newPagesList[targetPageIndex];
+      newPagesList.add(NotePage.create(targetPageIndex));
     }
 
-    // 3. Add Moved Block to Target Page
-    final targetTextLayerIndex = 1;
-    final targetTextLayer =
-        targetPage.layers[targetTextLayerIndex] as TextLayer;
-    final updatedTargetBlocks = [...targetTextLayer.blocks, movedBlock];
-    final updatedTargetLayer =
-        targetTextLayer.copyWith(blocks: updatedTargetBlocks);
+    _activeDocument = _activeDocument!.copyWith(pages: newPagesList);
+    final targetPage = _activeDocument!.pages[targetPageIndex];
 
-    final updatedTargetLayers = List<NoteLayer>.from(targetPage.layers);
-    updatedTargetLayers[targetTextLayerIndex] = updatedTargetLayer;
-    final updatedTargetPage = targetPage.copyWith(layers: updatedTargetLayers);
+    // 3. Process the moved block on the target page (Recursive via _processTextInsertion)
+    // We use the same coordinates (x, margin) for the spillover
+    _processTextInsertion(movedBlock.text, targetPage.id, movedBlock.x,
+        PageLayoutEngine.pageMargin);
 
-    newPagesList[targetPageIndex] = updatedTargetPage;
-
-    // 4. Update Document & UI
-    _activeDocument = _activeDocument!
-        .copyWith(pages: newPagesList, updatedAt: DateTime.now());
-
-    // Optionally move focus to new block? For MVP, maybe not to avoid jarring jump while typing.
     notifyListeners();
     _scheduleAutoSave();
   }

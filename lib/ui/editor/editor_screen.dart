@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/editor_provider.dart';
+import '../../models/note_model.dart';
 import '../../services/pdf_service.dart';
 import 'page_widget.dart';
 import 'widgets/ai_chat_sheet.dart';
+import '../widgets/responsive_layout.dart';
 
 class EditorScreen extends StatelessWidget {
   const EditorScreen({super.key});
@@ -19,155 +21,145 @@ class EditorScreen extends StatelessWidget {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
+    return ResponsiveLayout(
+      mobile: _buildMobileEditor(doc, isSaving, isEditMode, provider, context),
+      tablet: _buildTabletEditor(doc, isSaving, isEditMode, provider, context),
+      desktop: _buildTabletEditor(doc, isSaving, isEditMode, provider, context),
+    );
+  }
+
+  Widget _buildMobileEditor(NoteDocument doc, bool isSaving, bool isEditMode,
+      EditorProvider provider, BuildContext context) {
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
-
-        // Save before exiting
         await provider.saveCurrentDocument();
-
-        // Ensure Edit Mode is off when leaving
         provider.setEditMode(false);
-
-        if (context.mounted) {
-          Navigator.of(context).pop();
-        }
+        if (context.mounted) Navigator.of(context).pop();
       },
-      child: GestureDetector(
-        onTap: () {
-          // Tap background to dismiss edit mode (optional, per user request "Tapping outside the page... Hides all editing tools")
-          // Logic: If tapping strictly outside pages.
-          // For now, let's keep it manual toggle or handle in Stack listener if needed.
-          // User said: "Tapping outside the page OR turning off Pencil mode: Hides bottom layer UI"
-          // We can try to catch taps here.
-          // However, scrolling is priority. Let's rely on Pencil toggle mainly or specific outside taps.
-          // Implementing tap outside closes edit mode:
-          if (isEditMode) {
-            // We can turn it off. But this might conflict with scrolling or tapping pages.
-            // Let's implement this on the stack background only if possible.
-          }
-        },
-        child: Scaffold(
-          backgroundColor: const Color(0xFFE0E0E0),
-          appBar: AppBar(
-            title: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    doc.title,
-                    style: const TextStyle(
-                        fontSize: 16, fontWeight: FontWeight.bold),
+      child: Scaffold(
+        backgroundColor: const Color(0xFFE0E0E0),
+        appBar: _buildAppBar(doc, isSaving, isEditMode, provider, context),
+        body: Stack(
+          children: [
+            _buildScrollableDocument(doc, isEditMode, provider),
+            if (isEditMode)
+              const Positioned(
+                bottom: 0,
+                left: 0,
+                right: 0,
+                child: ToolPalette(isVertical: false),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTabletEditor(NoteDocument doc, bool isSaving, bool isEditMode,
+      EditorProvider provider, BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFE0E0E0),
+      appBar: _buildAppBar(doc, isSaving, isEditMode, provider, context),
+      body: Row(
+        children: [
+          if (isEditMode) const ToolPalette(isVertical: true),
+          if (isEditMode) const VerticalDivider(width: 1),
+          Expanded(child: _buildScrollableDocument(doc, isEditMode, provider)),
+        ],
+      ),
+    );
+  }
+
+  AppBar _buildAppBar(NoteDocument doc, bool isSaving, bool isEditMode,
+      EditorProvider provider, BuildContext context) {
+    return AppBar(
+      title: Row(
+        children: [
+          Expanded(
+            child: Text(
+              doc.title,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ),
+          if (isSaving)
+            const Padding(
+              padding: EdgeInsets.only(left: 8),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(strokeWidth: 2),
                   ),
-                ),
-                if (isSaving)
-                  const Padding(
-                    padding: EdgeInsets.only(left: 8),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        SizedBox(
-                          width: 12,
-                          height: 12,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                        SizedBox(width: 6),
-                        Text(
-                          'Saving...',
-                          style: TextStyle(fontSize: 12, color: Colors.grey),
-                        ),
-                      ],
+                  SizedBox(width: 6),
+                  Text('Saving...',
+                      style: TextStyle(fontSize: 12, color: Colors.grey)),
+                ],
+              ),
+            ),
+        ],
+      ),
+      backgroundColor: Colors.white,
+      foregroundColor: Colors.black,
+      elevation: 1,
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.picture_as_pdf),
+          tooltip: 'Export PDF',
+          onPressed: () => PdfService.exportDocument(doc),
+        ),
+        IconButton(
+          icon: const Icon(Icons.auto_awesome),
+          tooltip: 'AI Assistant',
+          onPressed: () => _showAIChatSheet(context),
+        ),
+        IconButton(
+          icon: Icon(isEditMode ? Icons.edit : Icons.edit_outlined),
+          color: isEditMode ? Colors.blue : Colors.black,
+          tooltip: isEditMode ? 'Done Editing' : 'Edit',
+          onPressed: () => provider.toggleEditMode(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildScrollableDocument(
+      NoteDocument doc, bool isEditMode, EditorProvider provider) {
+    return GestureDetector(
+      onTap: () {
+        if (isEditMode) provider.setEditMode(false);
+      },
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+        child: InteractiveViewer(
+          minScale: 0.5,
+          maxScale: 4.0,
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: Column(
+              children: [
+                ...doc.pages.map((page) => Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: GestureDetector(
+                          onTap: () {}, child: PageWidget(page: page)),
+                    )),
+                if (isEditMode)
+                  OutlinedButton.icon(
+                    onPressed: () => provider.addPage(),
+                    icon: const Icon(Icons.add),
+                    label: const Text("Add Page"),
+                    style: OutlinedButton.styleFrom(
+                      backgroundColor: Colors.white54,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 32, vertical: 16),
                     ),
                   ),
+                const SizedBox(height: 120),
               ],
             ),
-            backgroundColor: Colors.white,
-            foregroundColor: Colors.black,
-            elevation: 1,
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.picture_as_pdf),
-                tooltip: 'Export PDF',
-                onPressed: () {
-                  PdfService.exportDocument(doc);
-                },
-              ),
-              IconButton(
-                icon: const Icon(Icons.auto_awesome),
-                tooltip: 'AI Assistant',
-                onPressed: () => _showAIChatSheet(context),
-              ),
-              // Pencil Icon Toggle
-              IconButton(
-                icon: Icon(isEditMode ? Icons.edit : Icons.edit_outlined),
-                color: isEditMode ? Colors.blue : Colors.black,
-                tooltip: isEditMode ? 'Done Editing' : 'Edit',
-                onPressed: () => provider.toggleEditMode(),
-              ),
-            ],
-          ),
-          body: Stack(
-            children: [
-              // 1. The Scrollable Document Area
-              Positioned.fill(
-                child: GestureDetector(
-                  onTap: () {
-                    if (isEditMode) {
-                      provider.setEditMode(false);
-                    }
-                  },
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.symmetric(
-                        vertical: 16, horizontal: 16),
-                    child: InteractiveViewer(
-                      minScale: 0.5,
-                      maxScale: 4.0,
-                      child: Align(
-                        alignment: Alignment.topCenter,
-                        child: Column(
-                          children: [
-                            ...doc.pages.map((page) => Padding(
-                                  padding: const EdgeInsets.only(bottom: 16),
-                                  child: GestureDetector(
-                                      // Prevent background tap from closing edit mode when tapping ON page
-                                      onTap: () {},
-                                      child: PageWidget(page: page)),
-                                )),
-
-                            // Add Page Button (Only in Edit Mode?)
-                            // User didn't specify, but "Clean viewing mode" suggests hiding it.
-                            if (isEditMode)
-                              OutlinedButton.icon(
-                                onPressed: () {
-                                  context.read<EditorProvider>().addPage();
-                                },
-                                icon: const Icon(Icons.add),
-                                label: const Text("Add Page"),
-                                style: OutlinedButton.styleFrom(
-                                  backgroundColor: Colors.white54,
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 32, vertical: 16),
-                                ),
-                              ),
-                            const SizedBox(
-                                height: 120), // More space for bottom sheet
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-
-              // 2. Bottom Tool Palette (Only visible in Edit Mode)
-              if (isEditMode)
-                const Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  child: ToolPalette(),
-                ),
-            ],
           ),
         ),
       ),
@@ -185,7 +177,8 @@ class EditorScreen extends StatelessWidget {
 }
 
 class ToolPalette extends StatelessWidget {
-  const ToolPalette({super.key});
+  final bool isVertical;
+  const ToolPalette({super.key, required this.isVertical});
 
   @override
   Widget build(BuildContext context) {
@@ -193,6 +186,46 @@ class ToolPalette extends StatelessWidget {
         context.select((EditorProvider p) => p.activeLayerIndex);
     final activeTool = context.select((EditorProvider p) => p.activeTool);
     final provider = context.read<EditorProvider>();
+
+    if (isVertical) {
+      return Container(
+        width: 80,
+        color: Colors.white,
+        child: SingleChildScrollView(
+          child: Column(
+            children: [
+              const SizedBox(height: 16),
+              const Text("Layers",
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                      color: Colors.grey)),
+              const SizedBox(height: 8),
+              _layerIcon(Icons.layers, "Temp", 0, activeLayer, provider),
+              _layerIcon(Icons.text_fields, "Text", 1, activeLayer, provider),
+              _layerIcon(Icons.image, "Img", 2, activeLayer, provider),
+              _layerIcon(Icons.draw, "Draw", 3, activeLayer, provider),
+              if (activeLayer == 3) ...[
+                const Divider(),
+                const Text("Tools",
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                        color: Colors.grey)),
+                _verticalToolButton(
+                    Icons.edit, EditorTool.pen, activeTool, provider),
+                _verticalToolButton(Icons.cleaning_services, EditorTool.eraser,
+                    activeTool, provider),
+                const Divider(),
+                _verticalColorButton(Colors.black, provider),
+                _verticalColorButton(Colors.red, provider),
+                _verticalColorButton(Colors.blue, provider),
+              ]
+            ],
+          ),
+        ),
+      );
+    }
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -205,7 +238,6 @@ class ToolPalette extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Layer Selector
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
@@ -220,10 +252,8 @@ class ToolPalette extends StatelessWidget {
               ],
             ),
           ),
-
           if (activeLayer == 3) ...[
             const Divider(height: 24),
-            // Drawing Tools (Only when Drawing Layer is selected)
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
@@ -231,7 +261,6 @@ class ToolPalette extends StatelessWidget {
                 _toolButton(Icons.cleaning_services, EditorTool.eraser,
                     activeTool, provider),
                 Container(width: 1, height: 24, color: Colors.grey[300]),
-                // Simple color picker mockups
                 _colorButton(context, Colors.black, provider),
                 _colorButton(context, Colors.red, provider),
                 _colorButton(context, Colors.blue, provider),
@@ -248,6 +277,44 @@ class ToolPalette extends StatelessWidget {
     );
   }
 
+  Widget _layerIcon(IconData icon, String label, int index, int activeIndex,
+      EditorProvider provider) {
+    final isActive = index == activeIndex;
+    return IconButton(
+      icon: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: isActive ? Colors.blue : Colors.grey),
+          Text(label,
+              style: TextStyle(
+                  fontSize: 10, color: isActive ? Colors.blue : Colors.grey)),
+        ],
+      ),
+      onPressed: () => provider.setActiveLayer(index),
+    );
+  }
+
+  Widget _verticalToolButton(IconData icon, EditorTool tool,
+      EditorTool activeTool, EditorProvider provider) {
+    final isActive = tool == activeTool;
+    return IconButton(
+      icon: Icon(icon, color: isActive ? Colors.blue : Colors.grey),
+      onPressed: () => provider.setTool(tool),
+    );
+  }
+
+  Widget _verticalColorButton(Color color, EditorProvider provider) {
+    return GestureDetector(
+      onTap: () => provider.setPenProperties(color, provider.penWidth),
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 8),
+        width: 24,
+        height: 24,
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      ),
+    );
+  }
+
   Widget _toolButton(IconData icon, EditorTool tool, EditorTool activeTool,
       EditorProvider provider) {
     final isActive = tool == activeTool;
@@ -255,16 +322,12 @@ class ToolPalette extends StatelessWidget {
       icon: Icon(icon),
       color: isActive ? Colors.blue : Colors.grey,
       onPressed: () => provider.setTool(tool),
-      style: isActive
-          ? IconButton.styleFrom(
-              backgroundColor: Colors.blue.withValues(alpha: 0.1))
-          : null,
     );
   }
 
   Widget _colorButton(
       BuildContext context, Color color, EditorProvider provider) {
-    final activeColor = context.select((EditorProvider p) => p.penColor);
+    final activeColor = provider.penColor;
     final isActive = color.toARGB32() == activeColor.toARGB32();
 
     return GestureDetector(
@@ -274,16 +337,10 @@ class ToolPalette extends StatelessWidget {
         width: 24,
         height: 24,
         decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-            border: isActive ? Border.all(color: Colors.blue, width: 2) : null,
-            boxShadow: [
-              if (isActive)
-                BoxShadow(
-                    color: Colors.blue.withValues(alpha: 0.3),
-                    blurRadius: 4,
-                    spreadRadius: 2)
-            ]),
+          color: color,
+          shape: BoxShape.circle,
+          border: isActive ? Border.all(color: Colors.blue, width: 2) : null,
+        ),
       ),
     );
   }

@@ -2,12 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:file_picker/file_picker.dart';
+import 'dart:io';
 import '../providers/editor_provider.dart';
 import '../services/file_service.dart';
+import '../services/pdf_service.dart';
 import '../models/file_system_item.dart';
 import 'editor/editor_screen.dart';
 import 'widgets/document_name_dialog.dart';
 import 'widgets/document_tool_card.dart';
+import 'widgets/responsive_layout.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -23,236 +26,388 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    return ResponsiveLayout(
+      mobile: _buildMobileLayout(),
+      tablet: _buildTabletLayout(),
+      desktop: _buildTabletLayout(),
+    );
+  }
+
+  Widget _buildMobileLayout() {
     return Scaffold(
-      backgroundColor: Colors.white, // Clean white background
-      body: SafeArea(
-        child: FutureBuilder<List<FileSystemItem>>(
-          future: FileService.listFileSystemItems(parentId: _currentFolderId),
-          builder: (context, snapshot) {
-            // Handle loading/error states cleanly in UI or just show empty/loading indicators
-            final items = snapshot.data ?? [];
+      backgroundColor: Colors.white,
+      body: SafeArea(child: _buildMainContent(isMobile: true)),
+      bottomNavigationBar: _buildBottomNavigationBar(),
+      floatingActionButton: _buildFAB(),
+    );
+  }
 
-            return CustomScrollView(
-              slivers: [
-                // 1. Top Section: Search Bar & Header
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16.0, vertical: 8.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const SizedBox(height: 8),
-                        // Search Bar
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          height: 50,
-                          decoration: BoxDecoration(
-                            color: Colors.grey[100],
-                            borderRadius: BorderRadius.circular(25),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(Icons.search, color: Colors.grey[600]),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  'Search for documents',
-                                  style: TextStyle(
-                                    color: Colors.grey[500],
-                                    fontSize: 16,
-                                  ),
-                                ),
-                              ),
-                              Icon(Icons.more_vert,
-                                  color: Colors.grey[700]), // Menu dots
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-
-                        // "Document tools" Header
-                        const Text(
-                          'Document tools',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.black87,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-
-                        // Tools ScrollView
-                        SizedBox(
-                          height: 110,
-                          child: SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            child: Row(
-                              children: [
-                                DocumentToolCard(
-                                  title: 'convert documents',
-                                  icon: Icons.description_outlined,
-                                  color: const Color(0xFF2E7D32), // Dark Green
-                                  iconColor: Colors.white,
-                                  backgroundColor:
-                                      const Color(0xFFE8F5E9), // Light Green
-                                  onTap: () => _showConversionOptions(context),
-                                ),
-                                DocumentToolCard(
-                                  title: 'use other documents type',
-                                  icon: Icons.translate, // Placeholder icon
-                                  color: const Color(0xFF1565C0), // Dark Blue
-                                  iconColor: Colors.white,
-                                  backgroundColor:
-                                      const Color(0xFFE3F2FD), // Light Blue
-                                  onTap: () {},
-                                ),
-                                DocumentToolCard(
-                                  title: 'convert image to pdf',
-                                  icon: Icons.share, // Placeholder
-                                  color: const Color(0xFFC62828), // Dark Red
-                                  iconColor: Colors.white,
-                                  backgroundColor:
-                                      const Color(0xFFFFEBEE), // Light Red
-                                  onTap: () {},
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 32),
-
-                        // "notes" Header
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text(
-                              'notes',
-                              style: TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.black,
-                                letterSpacing: -0.5,
-                              ),
-                            ),
-                            Row(
-                              children: [
-                                Text(
-                                  'Filter',
-                                  style: TextStyle(
-                                    color: Colors.grey[600],
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                const SizedBox(width: 4),
-                                Icon(Icons.filter_list,
-                                    size: 18, color: Colors.grey[600]),
-                              ],
-                            )
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                      ],
-                    ),
-                  ),
-                ),
-
-                // 2. Breadcrumbs (if not root)
-                if (_currentFolderId != null)
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 8),
-                      child: _buildBreadcrumbs(),
-                    ),
-                  ),
-
-                // 3. Document List (SliverList)
-                if (items.isEmpty &&
-                    snapshot.connectionState != ConnectionState.waiting)
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.all(32.0),
-                      child: Center(
-                        child: Column(
-                          children: [
-                            Icon(Icons.folder_open,
-                                size: 64, color: Colors.grey[300]),
-                            const SizedBox(height: 16),
-                            Text('No documents found',
-                                style: TextStyle(color: Colors.grey[500])),
-                          ],
-                        ),
-                      ),
-                    ),
-                  )
-                else
-                  SliverList(
-                    delegate: SliverChildBuilderDelegate(
-                      (context, index) {
-                        final item = items[index];
-                        return FileSystemItemWidget(
-                          item: item,
-                          onTap: () => _handleItemTap(item),
-                          onDelete: () => _deleteItem(item),
-                          onRename: () => _renameItem(item),
-                        );
-                      },
-                      childCount: items.length,
-                    ),
-                  ),
-
-                // Extra padding at bottom for FAB
-                const SliverToBoxAdapter(child: SizedBox(height: 80)),
-              ],
-            );
-          },
-        ),
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        onTap: (index) async {
-          if (index == 1) {
-            // "All documents" - Fetch all device documents
-            final result = await FilePicker.platform.pickFiles(
-              allowMultiple: true,
-              type: FileType.any, // Or limit to custom extensions
-            );
-
-            if (result != null) {
-              debugPrint('Picked ${result.files.length} files from device');
-              // Optionally do something with result.files
-            }
-          } else {
-            setState(() {
-              _selectedIndex = index;
-            });
-          }
-        },
-        selectedItemColor: Colors.black,
-        unselectedItemColor: Colors.grey,
-        showUnselectedLabels: true,
-        type: BottomNavigationBarType.fixed,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home),
-            label: 'Home',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.folder_open),
-            label: 'All documents',
-          ),
+  Widget _buildTabletLayout() {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: Row(
+        children: [
+          _buildSidebar(),
+          const VerticalDivider(width: 1, thickness: 1),
+          Expanded(child: SafeArea(child: _buildMainContent(isMobile: false))),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _showCreateOptions(context),
-        backgroundColor: const Color(0xFFFF9800), // Orange
-        foregroundColor: Colors.white,
-        elevation: 4,
-        shape: const CircleBorder(),
-        child: const Icon(Icons.edit, size: 28),
+      floatingActionButton: _buildFAB(),
+    );
+  }
+
+  Widget _buildSidebar() {
+    return NavigationRail(
+      selectedIndex: _selectedIndex,
+      onDestinationSelected: (index) {
+        if (index == 1) {
+          _pickAndConvertPdf();
+        } else {
+          setState(() {
+            _selectedIndex = index;
+          });
+        }
+      },
+      labelType: NavigationRailLabelType.all,
+      selectedIconTheme: const IconThemeData(color: Colors.black),
+      unselectedIconTheme: const IconThemeData(color: Colors.grey),
+      selectedLabelTextStyle:
+          const TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+      unselectedLabelTextStyle: const TextStyle(color: Colors.grey),
+      destinations: const [
+        NavigationRailDestination(
+          icon: Icon(Icons.home_outlined),
+          selectedIcon: Icon(Icons.home),
+          label: Text('Home'),
+        ),
+        NavigationRailDestination(
+          icon: Icon(Icons.folder_open_outlined),
+          selectedIcon: Icon(Icons.folder_open),
+          label: Text('Import PDF'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMainContent({required bool isMobile}) {
+    return FutureBuilder<List<FileSystemItem>>(
+      future: FileService.listFileSystemItems(parentId: _currentFolderId),
+      builder: (context, snapshot) {
+        final items = snapshot.data ?? [];
+        return CustomScrollView(
+          slivers: [
+            SliverToBoxAdapter(child: _buildHeader(isMobile)),
+            if (_currentFolderId != null)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: _buildBreadcrumbs(),
+                ),
+              ),
+            if (items.isEmpty &&
+                snapshot.connectionState != ConnectionState.waiting)
+              _buildEmptyState()
+            else
+              isMobile ? _buildListView(items) : _buildGridView(items),
+            const SliverToBoxAdapter(child: SizedBox(height: 80)),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildHeader(bool isMobile) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 8),
+          _buildSearchBar(),
+          const SizedBox(height: 24),
+          const Text(
+            'Document tools',
+            style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w500,
+                color: Colors.black87),
+          ),
+          const SizedBox(height: 16),
+          _buildToolCards(),
+          const SizedBox(height: 32),
+          _buildNotesTitle(),
+          const SizedBox(height: 8),
+        ],
       ),
     );
+  }
+
+  Widget _buildSearchBar() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      height: 50,
+      decoration: BoxDecoration(
+          color: Colors.grey[100], borderRadius: BorderRadius.circular(25)),
+      child: Row(
+        children: [
+          Icon(Icons.search, color: Colors.grey[600]),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text('Search for documents',
+                style: TextStyle(color: Colors.grey[500], fontSize: 16)),
+          ),
+          Icon(Icons.more_vert, color: Colors.grey[700]),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildToolCards() {
+    return SizedBox(
+      height: 110,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            DocumentToolCard(
+              title: 'convert documents',
+              icon: Icons.description_outlined,
+              color: const Color(0xFF2E7D32),
+              iconColor: Colors.white,
+              backgroundColor: const Color(0xFFE8F5E9),
+              onTap: () => _showConversionOptions(context),
+            ),
+            DocumentToolCard(
+              title: 'use other documents type',
+              icon: Icons.translate,
+              color: const Color(0xFF1565C0),
+              iconColor: Colors.white,
+              backgroundColor: const Color(0xFFE3F2FD),
+              onTap: () {},
+            ),
+            DocumentToolCard(
+              title: 'convert image to pdf',
+              icon: Icons.share,
+              color: const Color(0xFFC62828),
+              iconColor: Colors.white,
+              backgroundColor: const Color(0xFFFFEBEE),
+              onTap: () {},
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNotesTitle() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        const Text(
+          'notes',
+          style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w800,
+              color: Colors.black,
+              letterSpacing: -0.5),
+        ),
+        Row(
+          children: [
+            Text('Filter',
+                style: TextStyle(color: Colors.grey[600], fontSize: 14)),
+            const SizedBox(width: 4),
+            Icon(Icons.filter_list, size: 18, color: Colors.grey[600]),
+          ],
+        )
+      ],
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return SliverToBoxAdapter(
+      child: Padding(
+        padding: const EdgeInsets.all(32.0),
+        child: Center(
+          child: Column(
+            children: [
+              Icon(Icons.folder_open, size: 64, color: Colors.grey[300]),
+              const SizedBox(height: 16),
+              Text('No documents found',
+                  style: TextStyle(color: Colors.grey[500])),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildListView(List<FileSystemItem> items) {
+    return SliverList(
+      delegate: SliverChildBuilderDelegate(
+        (context, index) {
+          final item = items[index];
+          return FileSystemItemWidget(
+            item: item,
+            onTap: () => _handleItemTap(item),
+            onDelete: () => _deleteItem(item),
+            onRename: () => _renameItem(item),
+          );
+        },
+        childCount: items.length,
+      ),
+    );
+  }
+
+  Widget _buildGridView(List<FileSystemItem> items) {
+    return SliverPadding(
+      padding: const EdgeInsets.all(16),
+      sliver: SliverGrid(
+        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+          maxCrossAxisExtent: 200,
+          mainAxisSpacing: 16,
+          crossAxisSpacing: 16,
+          childAspectRatio: 0.8,
+        ),
+        delegate: SliverChildBuilderDelegate(
+          (context, index) {
+            final item = items[index];
+            return Card(
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: Colors.grey.shade200),
+              ),
+              child: InkWell(
+                onTap: () => _handleItemTap(item),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: _buildItemIcon(item, isGrid: true),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        item.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      Text(
+                        DateFormat('d MMM y').format(item.lastModified),
+                        style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+          childCount: items.length,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildItemIcon(FileSystemItem item, {bool isGrid = false}) {
+    final isFolder = item.type == FileSystemItemType.folder;
+    return Container(
+      width: isGrid ? double.infinity : 50,
+      height: isGrid ? double.infinity : 60,
+      decoration: BoxDecoration(
+        color: isFolder ? Colors.amber[100] : Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: isFolder
+          ? const Center(
+              child: Icon(Icons.folder, color: Colors.orange, size: 30))
+          : (item.name.toLowerCase().contains("pdf")
+              ? const Center(
+                  child:
+                      Icon(Icons.picture_as_pdf, color: Colors.red, size: 30))
+              : const Center(
+                  child:
+                      Icon(Icons.description, color: Colors.blue, size: 30))),
+    );
+  }
+
+  Widget _buildFAB() {
+    return FloatingActionButton(
+      onPressed: () => _showCreateOptions(context),
+      backgroundColor: const Color(0xFFFF9800),
+      foregroundColor: Colors.white,
+      elevation: 4,
+      shape: const CircleBorder(),
+      child: const Icon(Icons.edit, size: 28),
+    );
+  }
+
+  Widget _buildBottomNavigationBar() {
+    return BottomNavigationBar(
+      currentIndex: _selectedIndex,
+      onTap: (index) async {
+        if (index == 1) {
+          _pickAndConvertPdf();
+        } else {
+          setState(() {
+            _selectedIndex = index;
+          });
+        }
+      },
+      selectedItemColor: Colors.black,
+      unselectedItemColor: Colors.grey,
+      showUnselectedLabels: true,
+      type: BottomNavigationBarType.fixed,
+      items: const [
+        BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
+        BottomNavigationBarItem(
+            icon: Icon(Icons.folder_open), label: 'All documents'),
+      ],
+    );
+  }
+
+  Future<void> _pickAndConvertPdf() async {
+    final result = await FilePicker.platform.pickFiles(
+      allowMultiple: false,
+      type: FileType.custom,
+      allowedExtensions: ['pdf'],
+    );
+
+    if (result != null && result.files.single.path != null) {
+      final file = File(result.files.single.path!);
+      final fileName = result.files.single.name;
+
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(child: CircularProgressIndicator()),
+      );
+
+      try {
+        final newDoc =
+            await PdfService.convertPdfToNoteDocument(file, fileName);
+        await FileService.saveDocument(newDoc);
+
+        if (!mounted) return;
+        Navigator.pop(context);
+
+        final editorProvider = context.read<EditorProvider>();
+        editorProvider.setActiveDocument(newDoc);
+
+        Navigator.of(context)
+            .push(MaterialPageRoute(builder: (_) => const EditorScreen()));
+      } catch (e) {
+        if (!mounted) return;
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Error converting PDF: $e')));
+      }
+    }
   }
 
   // --- Helpers & Logic ---
