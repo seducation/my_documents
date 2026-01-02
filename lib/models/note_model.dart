@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 
-enum LayerType { template, text, image, drawing }
+enum LayerType { template, text, image, drawing, comment }
 
 // --- Document & Page ---
 
@@ -13,6 +13,9 @@ class NoteDocument {
   final List<NotePage> pages;
   final String? parentId; // null means root folder
   final List<AIChatMessage> chatHistory;
+  final double viewportScale;
+  final double viewportX;
+  final double viewportY;
 
   NoteDocument({
     required this.id,
@@ -22,6 +25,9 @@ class NoteDocument {
     required this.pages,
     this.parentId,
     this.chatHistory = const [],
+    this.viewportScale = 1.0,
+    this.viewportX = 0.0,
+    this.viewportY = 0.0,
   });
 
   NoteDocument copyWith({
@@ -30,6 +36,9 @@ class NoteDocument {
     List<NotePage>? pages,
     String? parentId,
     List<AIChatMessage>? chatHistory,
+    double? viewportScale,
+    double? viewportX,
+    double? viewportY,
   }) {
     return NoteDocument(
       id: id,
@@ -39,6 +48,9 @@ class NoteDocument {
       pages: pages ?? this.pages,
       parentId: parentId ?? this.parentId,
       chatHistory: chatHistory ?? this.chatHistory,
+      viewportScale: viewportScale ?? this.viewportScale,
+      viewportX: viewportX ?? this.viewportX,
+      viewportY: viewportY ?? this.viewportY,
     );
   }
 
@@ -63,6 +75,9 @@ class NoteDocument {
       'pages': pages.map((p) => p.toJson()).toList(),
       'parentId': parentId,
       'chatHistory': chatHistory.map((m) => m.toJson()).toList(),
+      'viewportScale': viewportScale,
+      'viewportX': viewportX,
+      'viewportY': viewportY,
     };
   }
 
@@ -80,6 +95,9 @@ class NoteDocument {
           .map<AIChatMessage>(
               (m) => AIChatMessage.fromJson(m as Map<String, dynamic>))
           .toList(),
+      viewportScale: (json['viewportScale'] as num? ?? 1.0).toDouble(),
+      viewportX: (json['viewportX'] as num? ?? 0.0).toDouble(),
+      viewportY: (json['viewportY'] as num? ?? 0.0).toDouble(),
     );
   }
 }
@@ -114,6 +132,7 @@ class NotePage {
         TextLayer(id: const Uuid().v4(), blocks: []), // Layer 1
         ImageLayer(id: const Uuid().v4(), images: []), // Layer 2
         DrawingLayer(id: const Uuid().v4(), strokes: []), // Layer 3
+        CommentLayer(id: const Uuid().v4(), annotations: []), // Layer 4
       ],
     );
   }
@@ -127,12 +146,30 @@ class NotePage {
   }
 
   factory NotePage.fromJson(Map<String, dynamic> json) {
+    final List<NoteLayer> loadedLayers = (json['layers'] as List)
+        .map((l) => _layerFromJson(l as Map<String, dynamic>))
+        .toList();
+
+    // Map by type for easy lookup to handle missing layers or wrong order
+    final Map<LayerType, NoteLayer> layerMap = {
+      for (var l in loadedLayers) l.type: l
+    };
+
     return NotePage(
       id: json['id'] as String,
       pageIndex: json['pageIndex'] as int,
-      layers: (json['layers'] as List)
-          .map((l) => _layerFromJson(l as Map<String, dynamic>))
-          .toList(),
+      layers: [
+        layerMap[LayerType.template] ??
+            TemplateLayer(id: const Uuid().v4(), isLocked: true),
+        layerMap[LayerType.text] ??
+            TextLayer(id: const Uuid().v4(), blocks: []),
+        layerMap[LayerType.image] ??
+            ImageLayer(id: const Uuid().v4(), images: []),
+        layerMap[LayerType.drawing] ??
+            DrawingLayer(id: const Uuid().v4(), strokes: []),
+        layerMap[LayerType.comment] ??
+            CommentLayer(id: const Uuid().v4(), annotations: []),
+      ],
     );
   }
 
@@ -154,6 +191,8 @@ class NotePage {
       base['images'] = layer.images.map((i) => i.toJson()).toList();
     } else if (layer is DrawingLayer) {
       base['strokes'] = layer.strokes.map((s) => s.toJson()).toList();
+    } else if (layer is CommentLayer) {
+      base['annotations'] = layer.annotations.map((a) => a.toJson()).toList();
     }
 
     return base;
@@ -204,6 +243,16 @@ class NotePage {
           opacity: opacity,
           strokes: (json['strokes'] as List? ?? [])
               .map((s) => DrawingStroke.fromJson(s as Map<String, dynamic>))
+              .toList(),
+        );
+      case LayerType.comment:
+        return CommentLayer(
+          id: id,
+          isLocked: isLocked,
+          isVisible: isVisible,
+          opacity: opacity,
+          annotations: (json['annotations'] as List? ?? [])
+              .map((a) => CommentAnnotation.fromJson(a as Map<String, dynamic>))
               .toList(),
         );
     }
@@ -369,6 +418,39 @@ class DrawingLayer extends NoteLayer {
   }
 }
 
+class CommentLayer extends NoteLayer {
+  final List<CommentAnnotation> annotations;
+
+  CommentLayer({
+    required super.id,
+    super.isLocked = false,
+    super.isVisible = true,
+    super.opacity = 1.0,
+    required this.annotations,
+  }) : super(type: LayerType.comment);
+
+  @override
+  CommentLayer copyWithBase(
+      {bool? isLocked, bool? isVisible, double? opacity}) {
+    return copyWith(isLocked: isLocked, isVisible: isVisible, opacity: opacity);
+  }
+
+  CommentLayer copyWith({
+    bool? isLocked,
+    bool? isVisible,
+    double? opacity,
+    List<CommentAnnotation>? annotations,
+  }) {
+    return CommentLayer(
+      id: id,
+      isLocked: isLocked ?? this.isLocked,
+      isVisible: isVisible ?? this.isVisible,
+      opacity: opacity ?? this.opacity,
+      annotations: annotations ?? this.annotations,
+    );
+  }
+}
+
 // --- Content Items ---
 
 class TextBlock {
@@ -448,6 +530,25 @@ class NoteImage {
     this.rotation = 0,
   });
 
+  NoteImage copyWith({
+    String? path,
+    double? x,
+    double? y,
+    double? width,
+    double? height,
+    double? rotation,
+  }) {
+    return NoteImage(
+      id: id,
+      path: path ?? this.path,
+      x: x ?? this.x,
+      y: y ?? this.y,
+      width: width ?? this.width,
+      height: height ?? this.height,
+      rotation: rotation ?? this.rotation,
+    );
+  }
+
   Map<String, dynamic> toJson() {
     return {
       'id': id,
@@ -477,11 +578,13 @@ class DrawingStroke {
   final List<DrawingPoint> points;
   final Color color;
   final double strokeWidth;
+  final bool isHighlighter;
 
   DrawingStroke({
     required this.points,
     required this.color,
     required this.strokeWidth,
+    this.isHighlighter = false,
   });
 
   Map<String, dynamic> toJson() {
@@ -489,6 +592,7 @@ class DrawingStroke {
       'points': points.map((p) => p.toJson()).toList(),
       'color': color.toARGB32(),
       'strokeWidth': strokeWidth,
+      'isHighlighter': isHighlighter,
     };
   }
 
@@ -499,6 +603,7 @@ class DrawingStroke {
           .toList(),
       color: Color(json['color'] as int),
       strokeWidth: (json['strokeWidth'] as num).toDouble(),
+      isHighlighter: json['isHighlighter'] as bool? ?? false,
     );
   }
 }
@@ -522,6 +627,68 @@ class DrawingPoint {
       offset: Offset(
           (json['dx'] as num).toDouble(), (json['dy'] as num).toDouble()),
       pressure: (json['pressure'] as num? ?? 1.0).toDouble(),
+    );
+  }
+}
+
+class CommentAnnotation {
+  final String id;
+  final String text;
+  final double x;
+  final double y;
+  final double radius;
+  final Color color;
+  final DateTime createdAt;
+
+  CommentAnnotation({
+    required this.id,
+    required this.text,
+    required this.x,
+    required this.y,
+    this.radius = 12.0,
+    this.color = Colors.red,
+    required this.createdAt,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'text': text,
+      'x': x,
+      'y': y,
+      'radius': radius,
+      'color': color.toARGB32(),
+      'createdAt': createdAt.toIso8601String(),
+    };
+  }
+
+  factory CommentAnnotation.fromJson(Map<String, dynamic> json) {
+    return CommentAnnotation(
+      id: json['id'] as String,
+      text: json['text'] as String,
+      x: (json['x'] as num).toDouble(),
+      y: (json['y'] as num).toDouble(),
+      radius: (json['radius'] as num? ?? 12.0).toDouble(),
+      color: Color(json['color'] as int),
+      createdAt: DateTime.parse(json['createdAt'] as String),
+    );
+  }
+
+  CommentAnnotation copyWith({
+    String? text,
+    double? x,
+    double? y,
+    double? radius,
+    Color? color,
+  }) {
+    return CommentAnnotation(
+      id: id,
+      text: text ?? this.text,
+      x: x ?? this.x,
+      y: y ?? this.y,
+      radius: radius ?? this.radius,
+      color: color ?? this.color,
+      createdAt: createdAt,
     );
   }
 }

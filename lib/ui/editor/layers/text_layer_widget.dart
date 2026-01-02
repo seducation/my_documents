@@ -20,52 +20,52 @@ class TextLayerWidget extends StatelessWidget {
     final isActive = activeLayerIndex == 1 &&
         isEditMode; // Text Layer is 1 and Edit Mode is on
 
-    final double displayOpacity =
-        (activeLayerIndex == 1) ? 1.0 : AppConstants.inactiveLayerOpacity;
-
     return IgnorePointer(
       ignoring: !isActive,
-      child: Opacity(
-        opacity: displayOpacity,
-        child: GestureDetector(
-          behavior: HitTestBehavior.translucent,
-          onTapUp: (details) {
-            if (!isActive) return;
-            // Add new text block at tap position
-            final RenderBox box = context.findRenderObject() as RenderBox;
-            final Offset localOffset =
-                box.globalToLocal(details.globalPosition);
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTapUp: (details) {
+          if (!isActive) return;
+          // Add new text block at tap position
+          final RenderBox box = context.findRenderObject() as RenderBox;
+          final Offset localOffset = box.globalToLocal(details.globalPosition);
 
-            _addTextBlock(context, localOffset);
-          },
-          child: Stack(
-            children: layer.blocks.map((block) {
-              return Positioned(
-                left: block.x,
-                top: block.y,
-                width: block.width,
-                child: _EditableTextBlock(
-                  block: block,
-                  onChanged: (newText) {
-                    _updateBlockText(context, block, newText);
-                  },
-                ),
-              );
-            }).toList(),
-          ),
+          _addTextBlock(context, localOffset);
+        },
+        child: Stack(
+          children: layer.blocks.map((block) {
+            return Positioned(
+              left: block.x,
+              top: block.y,
+              width: block.width,
+              child: _EditableTextBlock(
+                block: block,
+                onChanged: (newText) {
+                  _updateBlockText(context, block, newText);
+                },
+              ),
+            );
+          }).toList(),
         ),
       ),
     );
   }
 
   void _addTextBlock(BuildContext context, Offset position) {
+    final double rightLimit =
+        AppConstants.a4Width - PageLayoutEngine.pageMargin;
+    final double maxWidth = rightLimit - position.dx;
+
+    // Use a natural width (400) but cap it at the available space
+    final double safeWidth =
+        maxWidth > 50 ? (maxWidth < 400 ? maxWidth : 400) : 50;
+
     final newBlock = TextBlock(
       id: const Uuid().v4(),
       text: "",
       x: position.dx,
-      // Ensure we don't start below the margin logic
       y: position.dy,
-      width: 400, // Default width
+      width: safeWidth,
     );
 
     final provider = context.read<EditorProvider>();
@@ -82,8 +82,6 @@ class TextLayerWidget extends StatelessWidget {
     TextBlock updatedBlock = block.copyWith(text: newText);
 
     // Check overflow
-    // In a real app, we'd handle the split result here.
-    // For MVP, we'll just check and maybe show a snackbar or console warn
     final isOverflow = PageLayoutEngine.checkOverflow(updatedBlock);
     if (isOverflow) {
       // Calculate split
@@ -132,9 +130,7 @@ class _EditableTextBlockState extends State<_EditableTextBlock> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.block.text != widget.block.text &&
         _controller.text != widget.block.text) {
-      // Only update from model if local is different (avoid cursor jumps)
-      // State management with text fields is tricky; for MVP this simple check is okay
-      // but ideally we rely on Controller being source of truth while focused.
+      // Logic for syncing text field
     }
   }
 
@@ -148,6 +144,9 @@ class _EditableTextBlockState extends State<_EditableTextBlock> {
         border: InputBorder.none,
         contentPadding: EdgeInsets.zero,
         isDense: true,
+        isCollapsed: true,
+        prefixIconConstraints: BoxConstraints(maxWidth: 0, maxHeight: 0),
+        suffixIconConstraints: BoxConstraints(maxWidth: 0, maxHeight: 0),
         hintText: "Type something...",
         hintStyle: TextStyle(color: Colors.black26),
       ),

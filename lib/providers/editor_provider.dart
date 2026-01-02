@@ -1,6 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
+import 'dart:io';
+import 'package:file_picker/file_picker.dart';
+import 'package:http/http.dart' as http;
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import '../models/note_model.dart';
 import '../services/file_service.dart';
 import '../core/page_layout_engine.dart';
@@ -11,6 +16,8 @@ enum EditorTool {
   eraser,
   text, // Text insertion mode
   hand, // Pan/Zoom
+  highlighter,
+  comment,
 }
 
 class EditorProvider extends ChangeNotifier {
@@ -81,7 +88,9 @@ class EditorProvider extends ChangeNotifier {
   // --- Layer Management ---
 
   void setActiveLayer(int index) {
-    if (index < 0 || index >= 4) return; // 4 fixed layers for now
+    if (index < 0 || index >= 5) {
+      return; // 5 layers: Template, Text, Image, Drawing, Comment
+    }
     _activeLayerIndex = index;
     notifyListeners();
   }
@@ -89,7 +98,9 @@ class EditorProvider extends ChangeNotifier {
   NoteLayer? get currentLayer {
     final page = currentPage;
     if (page == null) return null;
-    if (_activeLayerIndex >= page.layers.length) return null;
+    if (_activeLayerIndex >= page.layers.length) {
+      return null;
+    }
     return page.layers[_activeLayerIndex];
   }
 
@@ -108,25 +119,28 @@ class EditorProvider extends ChangeNotifier {
 
   // --- Edit Mode Management ---
 
-  void toggleEditMode() {
-    _isEditMode = !_isEditMode;
-    notifyListeners();
-  }
-
   void setEditMode(bool value) {
     if (_isEditMode != value) {
       _isEditMode = value;
+      // If entering edit mode and still on default text tool, switch to pen
+      if (_isEditMode && _activeTool == EditorTool.text) {
+        setTool(EditorTool.pen);
+      }
       notifyListeners();
     }
+  }
+
+  void toggleEditMode() {
+    setEditMode(!_isEditMode);
   }
 
   // --- Editing Actions ---
 
   /// Generic update for the current page's specific layer
-  void updateLayer(NoteLayer updatedLayer) {
-    if (_activeDocument == null || _activePageId == null) return;
+  void updateLayer(NoteLayer updatedLayer, {int? specificPageIndex}) {
+    if (_activeDocument == null) return;
 
-    final pageIndex =
+    final pageIndex = specificPageIndex ??
         _activeDocument!.pages.indexWhere((p) => p.id == _activePageId);
     if (pageIndex == -1) return;
 
@@ -169,9 +183,18 @@ class EditorProvider extends ChangeNotifier {
 
     final sourceTextLayer =
         sourcePage.layers[sourceTextLayerIndex] as TextLayer;
-    final updatedSourceBlocks = sourceTextLayer.blocks
-        .map((b) => b.id == remainBlock.id ? remainBlock : b)
-        .toList();
+
+    // Update or remove the block
+    final List<TextBlock> updatedSourceBlocks;
+    if (remainBlock.text.isEmpty) {
+      updatedSourceBlocks =
+          sourceTextLayer.blocks.where((b) => b.id != remainBlock.id).toList();
+    } else {
+      updatedSourceBlocks = sourceTextLayer.blocks
+          .map((b) => b.id == remainBlock.id ? remainBlock : b)
+          .toList();
+    }
+
     final updatedSourceLayer =
         sourceTextLayer.copyWith(blocks: updatedSourceBlocks);
 
@@ -192,9 +215,10 @@ class EditorProvider extends ChangeNotifier {
     final targetPage = _activeDocument!.pages[targetPageIndex];
 
     // 3. Process the moved block on the target page (Recursive via _processTextInsertion)
-    // We use the same coordinates (x, margin) for the spillover
+    // We use the same coordinates (x, margin) for the spillover, and maintain width
     _processTextInsertion(movedBlock.text, targetPage.id, movedBlock.x,
-        PageLayoutEngine.pageMargin);
+        PageLayoutEngine.pageMargin,
+        width: movedBlock.width);
 
     notifyListeners();
     _scheduleAutoSave();
@@ -211,22 +235,24 @@ class EditorProvider extends ChangeNotifier {
 
     // Use current page as start
     String targetPageId = _activePageId ?? _activeDocument!.pages.last.id;
-    double startX = 40.0; // Margin
-    double startY = 40.0; // Margin
+    double startX = PageLayoutEngine.pageMargin;
+    double startY = PageLayoutEngine.pageMargin;
 
-    _processTextInsertion(text, targetPageId, startX, startY);
+    _processTextInsertion(text, targetPageId, startX, startY,
+        width: PageLayoutEngine.contentWidth);
 
     notifyListeners();
     _scheduleAutoSave();
   }
 
-  void _processTextInsertion(String text, String pageId, double x, double y) {
+  void _processTextInsertion(String text, String pageId, double x, double y,
+      {double? width}) {
     TextBlock block = TextBlock(
       id: const Uuid().v4(),
       text: text,
       x: x,
       y: y,
-      width: PageLayoutEngine.contentWidth,
+      width: width ?? PageLayoutEngine.contentWidth,
     );
 
     if (PageLayoutEngine.checkOverflow(block)) {
@@ -234,7 +260,9 @@ class EditorProvider extends ChangeNotifier {
       final remain = split['remain']!;
       final moved = split['moved']!;
 
-      _addBlockToPage(pageId, remain);
+      if (remain.text.isNotEmpty) {
+        _addBlockToPage(pageId, remain);
+      }
 
       // Create/Get next page
       int currentPageIndex =
@@ -250,10 +278,132 @@ class EditorProvider extends ChangeNotifier {
       }
 
       // Recursive call for moved text on next page
-      _processTextInsertion(moved.text, nextPage.id, moved.x, moved.y);
-    } else {
+      _processTextInsertion(moved.text, nextPage.id, moved.x, moved.y,
+          width: moved.width);
+    } else if (text.trim().isNotEmpty) {
       _addBlockToPage(pageId, block);
     }
+  }
+
+  void updateViewport(double scale, double x, double y) {
+    if (_activeDocument == null) return;
+
+    _activeDocument = _activeDocument!.copyWith(
+      viewportScale: scale,
+      viewportX: x,
+      viewportY: y,
+    );
+
+    _scheduleAutoSave();
+  }
+
+  // --- Comment Management ---
+
+  void addComment(String pageId, String text, Offset position) {
+    final pageIndex = _activeDocument!.pages.indexWhere((p) => p.id == pageId);
+    if (pageIndex == -1) return;
+
+    final page = _activeDocument!.pages[pageIndex];
+    const commentLayerIndex = 4;
+    final commentLayer = page.layers[commentLayerIndex] as CommentLayer;
+
+    final newComment = CommentAnnotation(
+      id: const Uuid().v4(),
+      text: text,
+      x: position.dx,
+      y: position.dy,
+      createdAt: DateTime.now(),
+      color: _getNextCommentColor(),
+    );
+
+    final updatedLayer = commentLayer
+        .copyWith(annotations: [...commentLayer.annotations, newComment]);
+    updateLayer(updatedLayer);
+  }
+
+  Color _getNextCommentColor() {
+    final colors = [
+      Colors.red,
+      Colors.green,
+      Colors.blue,
+      Colors.orange,
+      Colors.purple,
+    ];
+    final page = currentPage;
+    if (page == null) return colors[0];
+    final count = (page.layers[4] as CommentLayer).annotations.length;
+    return colors[count % colors.length];
+  }
+
+  void removeComment(String pageId, String commentId) {
+    final pageIndex = _activeDocument!.pages.indexWhere((p) => p.id == pageId);
+    if (pageIndex == -1) return;
+
+    final page = _activeDocument!.pages[pageIndex];
+    const commentLayerIndex = 4;
+    final commentLayer = page.layers[commentLayerIndex] as CommentLayer;
+
+    final updatedAnnotations =
+        commentLayer.annotations.where((a) => a.id != commentId).toList();
+    final updatedLayer = commentLayer.copyWith(annotations: updatedAnnotations);
+    updateLayer(updatedLayer);
+  }
+
+  // --- Image Import ---
+
+  Future<void> importImageFromLocal(String pageId) async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      allowMultiple: true,
+    );
+    if (result == null || result.files.isEmpty) return;
+
+    for (final file in result.files) {
+      if (file.path != null) {
+        await _addFileToImageLayer(pageId, File(file.path!));
+      }
+    }
+  }
+
+  Future<void> importImageFromUrl(String pageId, String url) async {
+    try {
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode == 200) {
+        final appDir = await getApplicationDocumentsDirectory();
+        final fileName = 'web_img_${DateTime.now().millisecondsSinceEpoch}.jpg';
+        final localFile = File(p.join(appDir.path, fileName));
+        await localFile.writeAsBytes(response.bodyBytes);
+        await _addFileToImageLayer(pageId, localFile);
+      }
+    } catch (e) {
+      debugPrint('Error importing image from URL: $e');
+    }
+  }
+
+  Future<void> _addFileToImageLayer(String pageId, File file) async {
+    final pageIndex = _activeDocument!.pages.indexWhere((p) => p.id == pageId);
+    if (pageIndex == -1) return;
+
+    final page = _activeDocument!.pages[pageIndex];
+    const imageLayerIndex = 2;
+    final imageLayer = page.layers[imageLayerIndex] as ImageLayer;
+
+    // Default placement with some staggering to avoid perfect overlap
+    final int existingCount = imageLayer.images.length;
+    final double offset = existingCount * 20.0;
+
+    final newImage = NoteImage(
+      id: const Uuid().v4(),
+      path: file.path,
+      x: PageLayoutEngine.pageMargin + (offset % 100),
+      y: PageLayoutEngine.pageMargin + (offset % 100),
+      width: 200,
+      height: 200,
+    );
+
+    final updatedLayer =
+        imageLayer.copyWith(images: [...imageLayer.images, newImage]);
+    updateLayer(updatedLayer, specificPageIndex: pageIndex);
   }
 
   void _addBlockToPage(String pageId, TextBlock block) {

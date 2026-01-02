@@ -5,7 +5,7 @@ import '../models/note_model.dart';
 
 class PageLayoutEngine {
   /// Defines the writable area of the page (A4 - margins)
-  static const double pageMargin = 40.0;
+  static const double pageMargin = 60.0;
   static const double contentWidth = AppConstants.a4Width - (pageMargin * 2);
   static const double contentHeight = AppConstants.a4Height - (pageMargin * 2);
   static const double pageBottomLimit = AppConstants.a4Height - pageMargin;
@@ -17,11 +17,16 @@ class PageLayoutEngine {
     final textPainter = TextPainter(
       text: TextSpan(
         text: block.text,
-        style: TextStyle(fontSize: block.fontSize),
+        style: TextStyle(
+          fontSize: block.fontSize,
+          fontFamily: 'Inter',
+          height: 1.2,
+        ),
       ),
       textDirection: TextDirection.ltr,
     );
-    textPainter.layout(maxWidth: block.width);
+    // Subtract a small buffer (4px) to ensure wrapping matches UI
+    textPainter.layout(maxWidth: block.width - 4.0);
     final blockHeight = textPainter.height;
 
     // Check if bottom of block exceeds page writable area
@@ -38,12 +43,17 @@ class PageLayoutEngine {
     if (spaceRemaining <= 0) {
       // Entire block moves
       return {
+        'remain': block.copyWith(text: ""),
         'moved': block.copyWith(y: pageMargin), // Reset Y for new page
       };
     }
 
     final text = block.text;
-    final style = TextStyle(fontSize: block.fontSize);
+    final style = TextStyle(
+      fontSize: block.fontSize,
+      fontFamily: 'Inter',
+      height: 1.2,
+    );
 
     // 2. Binary search for split index
     int low = 0;
@@ -58,7 +68,7 @@ class PageLayoutEngine {
       int mid = (low + high) ~/ 2;
 
       textPainter.text = TextSpan(text: text.substring(0, mid), style: style);
-      textPainter.layout(maxWidth: block.width);
+      textPainter.layout(maxWidth: block.width - 4.0);
 
       if (textPainter.height <= spaceRemaining) {
         splitIndex = mid;
@@ -69,11 +79,11 @@ class PageLayoutEngine {
     }
 
     // 3. Backtrack to nearest whitespace to avoid cutting words
-    if (splitIndex < text.length) {
-      int lastSpace = text.lastIndexOf(' ', splitIndex);
+    if (splitIndex < text.length && splitIndex > 0) {
+      final lastSpace =
+          text.substring(0, splitIndex).lastIndexOf(RegExp(r'\s'));
       if (lastSpace != -1) {
-        splitIndex = lastSpace +
-            1; // Keep space on previous line or move it? +1 to start next word
+        splitIndex = lastSpace + 1;
       }
     }
 

@@ -1,14 +1,87 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:provider/provider.dart';
 import '../../providers/editor_provider.dart';
 import '../../models/note_model.dart';
 import '../../services/pdf_service.dart';
 import 'page_widget.dart';
 import 'widgets/ai_chat_sheet.dart';
+import 'widgets/comment_indicators_widget.dart';
 import '../widgets/responsive_layout.dart';
 
-class EditorScreen extends StatelessWidget {
+class EditorScreen extends StatefulWidget {
   const EditorScreen({super.key});
+
+  @override
+  State<EditorScreen> createState() => _EditorScreenState();
+}
+
+class _EditorScreenState extends State<EditorScreen> {
+  late TransformationController _transformationController;
+  int _pointerCount = 0;
+  double _appBarFactor = 1.0; // 1.0 = full, 0.0 = minimized
+  double _lastTranslationY = 0.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _transformationController = TransformationController();
+
+    // Initial viewport restoration after the first build
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _restoreViewport();
+      _transformationController.addListener(_onTransformationChanged);
+    });
+  }
+
+  @override
+  void dispose() {
+    _transformationController.removeListener(_onTransformationChanged);
+    _transformationController.dispose();
+    super.dispose();
+  }
+
+  void _restoreViewport() {
+    final provider = context.read<EditorProvider>();
+    final doc = provider.activeDocument;
+    if (doc == null) return;
+
+    final matrix = Matrix4.translationValues(doc.viewportX, doc.viewportY, 0.0)
+      ..multiply(
+          Matrix4.diagonal3Values(doc.viewportScale, doc.viewportScale, 1.0));
+
+    _transformationController.value = matrix;
+  }
+
+  void _onTransformationChanged() {
+    final matrix = _transformationController.value;
+    final scale = matrix.getMaxScaleOnAxis();
+    final translation = matrix.getTranslation();
+    final x = translation.x;
+    final y = translation.y;
+
+    // Calculate AppBar factor (Safari-style)
+    // Scrolling down (y decreases) -> minimize
+    // Scrolling up (y increases) -> expand
+    // At top (y >= -10) -> full
+    if (y > _lastTranslationY || y >= -10) {
+      if (_appBarFactor < 1.0) {
+        setState(() {
+          _appBarFactor =
+              (y >= -10) ? 1.0 : (_appBarFactor + 0.1).clamp(0.0, 1.0);
+        });
+      }
+    } else if (y < _lastTranslationY) {
+      if (_appBarFactor > 0.0) {
+        setState(() {
+          _appBarFactor = (_appBarFactor - 0.1).clamp(0.0, 1.0);
+        });
+      }
+    }
+    _lastTranslationY = y;
+
+    context.read<EditorProvider>().updateViewport(scale, x, y);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -40,7 +113,8 @@ class EditorScreen extends StatelessWidget {
       },
       child: Scaffold(
         backgroundColor: const Color(0xFFE0E0E0),
-        appBar: _buildAppBar(doc, isSaving, isEditMode, provider, context),
+        appBar:
+            _buildMinimizedAppBar(doc, isSaving, isEditMode, provider, context),
         body: Stack(
           children: [
             _buildScrollableDocument(doc, isEditMode, provider),
@@ -51,6 +125,14 @@ class EditorScreen extends StatelessWidget {
                 right: 0,
                 child: ToolPalette(isVertical: false),
               ),
+            Positioned(
+              top: 0,
+              bottom: 0,
+              right: 0,
+              child: CommentIndicatorsWidget(
+                transformationController: _transformationController,
+              ),
+            ),
           ],
         ),
       ),
@@ -61,7 +143,8 @@ class EditorScreen extends StatelessWidget {
       EditorProvider provider, BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFE0E0E0),
-      appBar: _buildAppBar(doc, isSaving, isEditMode, provider, context),
+      appBar:
+          _buildMinimizedAppBar(doc, isSaving, isEditMode, provider, context),
       body: Row(
         children: [
           if (isEditMode) const ToolPalette(isVertical: true),
@@ -72,57 +155,104 @@ class EditorScreen extends StatelessWidget {
     );
   }
 
-  AppBar _buildAppBar(NoteDocument doc, bool isSaving, bool isEditMode,
-      EditorProvider provider, BuildContext context) {
-    return AppBar(
-      title: Row(
-        children: [
-          Expanded(
-            child: Text(
-              doc.title,
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-          ),
-          if (isSaving)
-            const Padding(
-              padding: EdgeInsets.only(left: 8),
+  PreferredSizeWidget _buildMinimizedAppBar(NoteDocument doc, bool isSaving,
+      bool isEditMode, EditorProvider provider, BuildContext context) {
+    const double fullHeight = 56.0;
+    const double minHeight = 40.0;
+    final double currentHeight =
+        minHeight + (fullHeight - minHeight) * _appBarFactor;
+
+    return PreferredSize(
+      preferredSize: Size.fromHeight(currentHeight),
+      child: AppBar(
+        toolbarHeight: currentHeight,
+        titleSpacing: 0,
+        title: Opacity(
+          opacity: _appBarFactor.clamp(0.3, 1.0),
+          child: Transform.scale(
+            scale: 0.8 + (0.2 * _appBarFactor),
+            alignment: Alignment.centerLeft,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 16),
               child: Row(
-                mainAxisSize: MainAxisSize.min,
                 children: [
-                  SizedBox(
-                    width: 12,
-                    height: 12,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+                  Expanded(
+                    child: Text(
+                      doc.title,
+                      style: TextStyle(
+                        fontSize: 14 + (2 * _appBarFactor),
+                        fontWeight: FontWeight.bold,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
                   ),
-                  SizedBox(width: 6),
-                  Text('Saving...',
-                      style: TextStyle(fontSize: 12, color: Colors.grey)),
+                  if (isSaving)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 8),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const SizedBox(
+                            width: 10,
+                            height: 10,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                          if (_appBarFactor > 0.5) ...[
+                            const SizedBox(width: 4),
+                            const Text('Saving...',
+                                style: TextStyle(
+                                    fontSize: 10, color: Colors.grey)),
+                          ],
+                        ],
+                      ),
+                    ),
                 ],
               ),
             ),
+          ),
+        ),
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black,
+        elevation: _appBarFactor > 0.1 ? 1 : 0,
+        actions: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _minimizedAction(
+                Icons.picture_as_pdf,
+                'Export PDF',
+                () => PdfService.exportDocument(doc),
+              ),
+              _minimizedAction(
+                Icons.auto_awesome,
+                'AI Assistant',
+                () => _showAIChatSheet(context),
+              ),
+              _minimizedAction(
+                isEditMode ? Icons.edit : Icons.edit_outlined,
+                isEditMode ? 'Done' : 'Edit',
+                () => provider.setEditMode(!isEditMode),
+                color: isEditMode ? Colors.blue : Colors.black,
+              ),
+            ],
+          ),
         ],
       ),
-      backgroundColor: Colors.white,
-      foregroundColor: Colors.black,
-      elevation: 1,
-      actions: [
-        IconButton(
-          icon: const Icon(Icons.picture_as_pdf),
-          tooltip: 'Export PDF',
-          onPressed: () => PdfService.exportDocument(doc),
-        ),
-        IconButton(
-          icon: const Icon(Icons.auto_awesome),
-          tooltip: 'AI Assistant',
-          onPressed: () => _showAIChatSheet(context),
-        ),
-        IconButton(
-          icon: Icon(isEditMode ? Icons.edit : Icons.edit_outlined),
-          color: isEditMode ? Colors.blue : Colors.black,
-          tooltip: isEditMode ? 'Done Editing' : 'Edit',
-          onPressed: () => provider.toggleEditMode(),
-        ),
-      ],
+    );
+  }
+
+  Widget _minimizedAction(IconData icon, String tooltip, VoidCallback onPressed,
+      {Color? color}) {
+    return Transform.scale(
+      scale: 0.7 + (0.3 * _appBarFactor),
+      child: IconButton(
+        icon: Icon(icon, color: color, size: 20 + (4 * _appBarFactor)),
+        tooltip: _appBarFactor > 0.5 ? tooltip : null,
+        visualDensity: VisualDensity.compact,
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(),
+        onPressed: onPressed,
+      ),
     );
   }
 
@@ -132,33 +262,57 @@ class EditorScreen extends StatelessWidget {
       onTap: () {
         if (isEditMode) provider.setEditMode(false);
       },
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-        child: InteractiveViewer(
-          minScale: 0.5,
-          maxScale: 4.0,
-          child: Align(
-            alignment: Alignment.topCenter,
-            child: Column(
-              children: [
-                ...doc.pages.map((page) => Padding(
-                      padding: const EdgeInsets.only(bottom: 16),
-                      child: GestureDetector(
-                          onTap: () {}, child: PageWidget(page: page)),
-                    )),
-                if (isEditMode)
-                  OutlinedButton.icon(
-                    onPressed: () => provider.addPage(),
-                    icon: const Icon(Icons.add),
-                    label: const Text("Add Page"),
-                    style: OutlinedButton.styleFrom(
-                      backgroundColor: Colors.white54,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 32, vertical: 16),
+      child: Container(
+        color: const Color(0xFFE0E0E0),
+        child: Listener(
+          onPointerDown: (event) {
+            if (event.kind == PointerDeviceKind.touch) {
+              setState(() => _pointerCount++);
+            }
+          },
+          onPointerUp: (event) {
+            if (event.kind == PointerDeviceKind.touch) {
+              setState(() => _pointerCount = (_pointerCount - 1).clamp(0, 10));
+            }
+          },
+          onPointerCancel: (event) {
+            if (event.kind == PointerDeviceKind.touch) {
+              setState(() => _pointerCount = (_pointerCount - 1).clamp(0, 10));
+            }
+          },
+          child: InteractiveViewer(
+            transformationController: _transformationController,
+            minScale: 0.2,
+            maxScale: 4.0,
+            boundaryMargin: const EdgeInsets.all(500),
+            constrained: false,
+            panEnabled: !isEditMode || _pointerCount >= 2,
+            scaleEnabled: !isEditMode || _pointerCount >= 2,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 40),
+              child: Column(
+                children: [
+                  ...doc.pages.map((page) => Padding(
+                        padding: const EdgeInsets.only(bottom: 20),
+                        child: PageWidget(page: page),
+                      )),
+                  if (isEditMode)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 20),
+                      child: OutlinedButton.icon(
+                        onPressed: () => provider.addPage(),
+                        icon: const Icon(Icons.add),
+                        label: const Text("Add Page"),
+                        style: OutlinedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 48, vertical: 16),
+                        ),
+                      ),
                     ),
-                  ),
-                const SizedBox(height: 120),
-              ],
+                  const SizedBox(height: 200),
+                ],
+              ),
             ),
           ),
         ),
@@ -205,6 +359,7 @@ class ToolPalette extends StatelessWidget {
               _layerIcon(Icons.text_fields, "Text", 1, activeLayer, provider),
               _layerIcon(Icons.image, "Img", 2, activeLayer, provider),
               _layerIcon(Icons.draw, "Draw", 3, activeLayer, provider),
+              _layerIcon(Icons.comment, "Com", 4, activeLayer, provider),
               if (activeLayer == 3) ...[
                 const Divider(),
                 const Text("Tools",
@@ -214,12 +369,25 @@ class ToolPalette extends StatelessWidget {
                         color: Colors.grey)),
                 _verticalToolButton(
                     Icons.edit, EditorTool.pen, activeTool, provider),
+                _verticalToolButton(
+                    Icons.brush, EditorTool.highlighter, activeTool, provider),
                 _verticalToolButton(Icons.cleaning_services, EditorTool.eraser,
                     activeTool, provider),
                 const Divider(),
                 _verticalColorButton(Colors.black, provider),
                 _verticalColorButton(Colors.red, provider),
                 _verticalColorButton(Colors.blue, provider),
+                _verticalColorButton(
+                    Colors.yellow.withValues(alpha: 0.5), provider),
+              ] else if (activeLayer == 2) ...[
+                const Divider(),
+                _verticalActionButton(
+                    Icons.add_photo_alternate,
+                    "Local",
+                    () =>
+                        provider.importImageFromLocal(provider.activePageId!)),
+                _verticalActionButton(Icons.language, "Web",
+                    () => _showImageUrlDialog(context, provider)),
               ]
             ],
           ),
@@ -249,6 +417,7 @@ class ToolPalette extends StatelessWidget {
                 _layerTab("Text", 1, activeLayer, provider),
                 _layerTab("Images", 2, activeLayer, provider),
                 _layerTab("Drawing", 3, activeLayer, provider),
+                _layerTab("Comments", 4, activeLayer, provider),
               ],
             ),
           ),
@@ -258,12 +427,30 @@ class ToolPalette extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
                 _toolButton(Icons.edit, EditorTool.pen, activeTool, provider),
+                _toolButton(
+                    Icons.brush, EditorTool.highlighter, activeTool, provider),
                 _toolButton(Icons.cleaning_services, EditorTool.eraser,
                     activeTool, provider),
                 Container(width: 1, height: 24, color: Colors.grey[300]),
                 _colorButton(context, Colors.black, provider),
                 _colorButton(context, Colors.red, provider),
                 _colorButton(context, Colors.blue, provider),
+                _colorButton(
+                    context, Colors.yellow.withValues(alpha: 0.5), provider),
+              ],
+            )
+          ] else if (activeLayer == 2) ...[
+            const Divider(height: 24),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _actionButton(
+                    Icons.add_photo_alternate,
+                    "Local",
+                    () =>
+                        provider.importImageFromLocal(provider.activePageId!)),
+                _actionButton(Icons.language, "Website",
+                    () => _showImageUrlDialog(context, provider)),
               ],
             )
           ] else if (activeLayer == 1) ...[
@@ -365,6 +552,58 @@ class ToolPalette extends StatelessWidget {
             fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _verticalActionButton(
+      IconData icon, String label, VoidCallback onPressed) {
+    return IconButton(
+      icon: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: Colors.blue),
+          Text(label, style: const TextStyle(fontSize: 10, color: Colors.blue)),
+        ],
+      ),
+      onPressed: onPressed,
+    );
+  }
+
+  Widget _actionButton(IconData icon, String label, VoidCallback onPressed) {
+    return TextButton.icon(
+      icon: Icon(icon),
+      label: Text(label),
+      onPressed: onPressed,
+    );
+  }
+
+  void _showImageUrlDialog(BuildContext context, EditorProvider provider) {
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Add Image from URL"),
+        content: TextField(
+          controller: controller,
+          decoration:
+              const InputDecoration(hintText: "https://example.com/image.jpg"),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Cancel")),
+          TextButton(
+            onPressed: () {
+              if (controller.text.isNotEmpty) {
+                provider.importImageFromUrl(
+                    provider.activePageId!, controller.text);
+                Navigator.pop(context);
+              }
+            },
+            child: const Text("Add"),
+          ),
+        ],
       ),
     );
   }

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:provider/provider.dart';
-import '../../../constants.dart';
 import '../../../models/note_model.dart';
 import '../../../providers/editor_provider.dart';
 
@@ -18,75 +17,80 @@ class DrawingLayerWidget extends StatefulWidget {
 
 class _DrawingLayerWidgetState extends State<DrawingLayerWidget> {
   List<DrawingPoint>? _currentStrokePoints;
-  bool _isUsingStylus = false;
+  final Set<int> _activeStylusPointers = {};
 
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<EditorProvider>();
-    final isActive = provider.activeLayerIndex == 3;
+    final isEditMode = provider.isEditMode;
+    final isActive = isEditMode && provider.activeLayerIndex == 3;
     final activeTool = provider.activeTool;
-
-    final double displayOpacity =
-        isActive ? 1.0 : AppConstants.inactiveLayerOpacity;
 
     return IgnorePointer(
       ignoring: !isActive,
-      child: Opacity(
-        opacity: displayOpacity,
-        child: Listener(
-          onPointerDown: (event) {
+      child: Listener(
+        onPointerDown: (event) {
+          if (event.kind == PointerDeviceKind.stylus) {
+            _activeStylusPointers.add(event.pointer);
+          }
+        },
+        onPointerUp: (event) {
+          if (event.kind == PointerDeviceKind.stylus) {
+            _activeStylusPointers.remove(event.pointer);
+          }
+        },
+        onPointerCancel: (event) {
+          if (event.kind == PointerDeviceKind.stylus) {
+            _activeStylusPointers.remove(event.pointer);
+          }
+        },
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onPanStart: (details) {
             if (!isActive) return;
 
-            // Palm Rejection Logic: If we see a stylus, we flag it.
-            // If we are using a stylus and see a touch, we might want to ignore it.
-            if (event.kind == PointerDeviceKind.stylus) {
-              _isUsingStylus = true;
-            } else if (event.kind == PointerDeviceKind.touch &&
-                _isUsingStylus) {
-              // Ignore touch if stylus is active (crude palm rejection)
-              return;
+            // Simple Palm Rejection (if we suspect stylus use)
+            if (_activeStylusPointers.isNotEmpty) {
+              // Note: GestureDetector's details don't easily tell us WHICH pointer kind it is,
+              // but we can infer if a stylus is currently down.
+              // Usually, stylists use high-level gestures too.
             }
 
             final RenderBox box = context.findRenderObject() as RenderBox;
-            final offset = box.globalToLocal(event.position);
-            final point =
-                DrawingPoint(offset: offset, pressure: event.pressure);
+            final offset = box.globalToLocal(details.globalPosition);
 
-            if (activeTool == EditorTool.pen) {
+            if (activeTool == EditorTool.pen ||
+                activeTool == EditorTool.highlighter) {
               setState(() {
-                _currentStrokePoints = [point];
+                _currentStrokePoints = [DrawingPoint(offset: offset)];
               });
             } else if (activeTool == EditorTool.eraser) {
               _eraseAt(offset);
             }
           },
-          onPointerMove: (event) {
-            if (!isActive) return;
-            if (event.kind == PointerDeviceKind.touch && _isUsingStylus) return;
+          onPanUpdate: (details) {
+            if (!isActive || _currentStrokePoints == null) return;
 
             final RenderBox box = context.findRenderObject() as RenderBox;
-            final offset = box.globalToLocal(event.position);
-            final point =
-                DrawingPoint(offset: offset, pressure: event.pressure);
+            final offset = box.globalToLocal(details.globalPosition);
 
-            if (activeTool == EditorTool.pen) {
+            if (activeTool == EditorTool.pen ||
+                activeTool == EditorTool.highlighter) {
               setState(() {
-                _currentStrokePoints?.add(point);
+                _currentStrokePoints?.add(DrawingPoint(offset: offset));
               });
             } else if (activeTool == EditorTool.eraser) {
               _eraseAt(offset);
             }
           },
-          onPointerUp: (event) {
-            if (activeTool == EditorTool.pen && _currentStrokePoints != null) {
-              _addStrokeToModel(provider);
+          onPanEnd: (details) {
+            if ((activeTool == EditorTool.pen ||
+                    activeTool == EditorTool.highlighter) &&
+                _currentStrokePoints != null) {
+              _addStrokeToModel(provider, activeTool == EditorTool.highlighter);
               setState(() {
                 _currentStrokePoints = null;
               });
-            }
-            if (event.kind == PointerDeviceKind.stylus) {
-              // Reset stylus flag after some timeout or on specific conditions?
-              // For now, let's keep it until touch is clearly intentional.
             }
           },
           child: CustomPaint(
@@ -95,7 +99,11 @@ class _DrawingLayerWidgetState extends State<DrawingLayerWidget> {
               strokes: widget.layer.strokes,
               currentStroke: _currentStrokePoints,
               currentColor: provider.penColor,
-              currentWidth: provider.penWidth,
+              currentWidth: provider.activeTool == EditorTool.highlighter
+                  ? 20.0
+                  : provider.penWidth,
+              isCurrentHighlighter:
+                  provider.activeTool == EditorTool.highlighter,
             ),
           ),
         ),
@@ -103,13 +111,14 @@ class _DrawingLayerWidgetState extends State<DrawingLayerWidget> {
     );
   }
 
-  void _addStrokeToModel(EditorProvider provider) {
+  void _addStrokeToModel(EditorProvider provider, bool isHighlighter) {
     if (_currentStrokePoints == null || _currentStrokePoints!.isEmpty) return;
 
     final newStroke = DrawingStroke(
       points: List.from(_currentStrokePoints!),
       color: provider.penColor,
-      strokeWidth: provider.penWidth,
+      strokeWidth: isHighlighter ? 20.0 : provider.penWidth,
+      isHighlighter: isHighlighter,
     );
 
     final newLayer = widget.layer.copyWith(
@@ -141,48 +150,51 @@ class _StrokesPainter extends CustomPainter {
   final List<DrawingPoint>? currentStroke;
   final Color currentColor;
   final double currentWidth;
+  final bool isCurrentHighlighter;
 
   _StrokesPainter({
     required this.strokes,
     this.currentStroke,
     required this.currentColor,
     required this.currentWidth,
+    this.isCurrentHighlighter = false,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
     for (final stroke in strokes) {
-      _drawStroke(canvas, stroke.points, stroke.color, stroke.strokeWidth);
+      _drawStroke(canvas, stroke.points, stroke.color, stroke.strokeWidth,
+          stroke.isHighlighter);
     }
 
     if (currentStroke != null && currentStroke!.isNotEmpty) {
-      _drawStroke(canvas, currentStroke!, currentColor, currentWidth);
+      _drawStroke(canvas, currentStroke!, currentColor, currentWidth,
+          isCurrentHighlighter);
     }
   }
 
-  void _drawStroke(
-      Canvas canvas, List<DrawingPoint> points, Color color, double baseWidth) {
+  void _drawStroke(Canvas canvas, List<DrawingPoint> points, Color color,
+      double baseWidth, bool isHighlighter) {
     if (points.isEmpty) return;
 
     final paint = Paint()
-      ..color = color
+      ..color = isHighlighter ? color.withValues(alpha: 0.3) : color
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round
-      ..style = PaintingStyle.stroke;
+      ..style = PaintingStyle.stroke
+      ..blendMode = isHighlighter ? BlendMode.multiply : BlendMode.srcOver;
 
     if (points.length == 1) {
-      paint.strokeWidth = baseWidth * points[0].pressure;
+      paint.strokeWidth = baseWidth;
       canvas.drawCircle(points[0].offset, paint.strokeWidth / 2, paint);
       return;
     }
 
-    // Draw segment by segment to respect pressure
     for (int i = 0; i < points.length - 1; i++) {
       final p1 = points[i];
       final p2 = points[i + 1];
 
-      // Interpolate width based on pressure
-      paint.strokeWidth = baseWidth * ((p1.pressure + p2.pressure) / 2);
+      paint.strokeWidth = baseWidth;
       canvas.drawLine(p1.offset, p2.offset, paint);
     }
   }
