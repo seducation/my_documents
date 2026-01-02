@@ -7,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.myapp"
+    namespace = "com.example.mydocuments"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
