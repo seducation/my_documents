@@ -3,8 +3,10 @@ import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
 
 class AIService {
-  static const String _apiKey = 'sk-cfe7e57888544145adbd46f5aa5af6e2';
-  static const String _baseUrl = 'https://api.deepseek.com/chat/completions';
+  static const String _apiKey =
+      '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';
+  static const String _baseUrl =
+      'https://openrouter.ai/api/v1/chat/completions';
 
   static Future<String> getChatResponse(
       List<Map<String, String>> messages) async {
@@ -16,7 +18,7 @@ class AIService {
           'Authorization': 'Bearer $_apiKey',
         },
         body: jsonEncode({
-          'model': 'deepseek-chat',
+          'model': 'deepseek/deepseek-chat',
           'messages': messages,
           'stream': false,
         }),
