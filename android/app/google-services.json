@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "322259968512",
+    "project_id": "gvone-5717a",
+    "storage_bucket": "gvone-5717a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:322259968512:android:1609362025881746392ee5",
+        "android_client_info": {
+          "package_name": "com.example.myapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAMyyFoGNmI8BA2Zd5hhSRPxLrjuJrZZtU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

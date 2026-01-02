@@ -1,0 +1,9 @@
+{
+  "name": "livekit-token-generator",
+  "version": "1.0.0",
+  "description": "Appwrite function to generate LiveKit tokens",
+  "main": "index.js",
+  "dependencies": {
+    "livekit-server-sdk": "^1.2.6"
+  }
+}
