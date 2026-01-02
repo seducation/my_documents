@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../providers/editor_provider.dart';
 import '../../services/pdf_service.dart';
 import 'page_widget.dart';
+import 'widgets/ai_chat_sheet.dart';
 
 class EditorScreen extends StatelessWidget {
   const EditorScreen({super.key});
@@ -91,6 +92,11 @@ class EditorScreen extends StatelessWidget {
                   PdfService.exportDocument(doc);
                 },
               ),
+              IconButton(
+                icon: const Icon(Icons.auto_awesome),
+                tooltip: 'AI Assistant',
+                onPressed: () => _showAIChatSheet(context),
+              ),
               // Pencil Icon Toggle
               IconButton(
                 icon: Icon(isEditMode ? Icons.edit : Icons.edit_outlined),
@@ -113,36 +119,40 @@ class EditorScreen extends StatelessWidget {
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.symmetric(
                         vertical: 16, horizontal: 16),
-                    child: Align(
-                      alignment: Alignment.topCenter,
-                      child: Column(
-                        children: [
-                          ...doc.pages.map((page) => Padding(
-                                padding: const EdgeInsets.only(bottom: 16),
-                                child: GestureDetector(
-                                    // Prevent background tap from closing edit mode when tapping ON page
-                                    onTap: () {},
-                                    child: PageWidget(page: page)),
-                              )),
+                    child: InteractiveViewer(
+                      minScale: 0.5,
+                      maxScale: 4.0,
+                      child: Align(
+                        alignment: Alignment.topCenter,
+                        child: Column(
+                          children: [
+                            ...doc.pages.map((page) => Padding(
+                                  padding: const EdgeInsets.only(bottom: 16),
+                                  child: GestureDetector(
+                                      // Prevent background tap from closing edit mode when tapping ON page
+                                      onTap: () {},
+                                      child: PageWidget(page: page)),
+                                )),
 
-                          // Add Page Button (Only in Edit Mode?)
-                          // User didn't specify, but "Clean viewing mode" suggests hiding it.
-                          if (isEditMode)
-                            OutlinedButton.icon(
-                              onPressed: () {
-                                context.read<EditorProvider>().addPage();
-                              },
-                              icon: const Icon(Icons.add),
-                              label: const Text("Add Page"),
-                              style: OutlinedButton.styleFrom(
-                                backgroundColor: Colors.white54,
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 32, vertical: 16),
+                            // Add Page Button (Only in Edit Mode?)
+                            // User didn't specify, but "Clean viewing mode" suggests hiding it.
+                            if (isEditMode)
+                              OutlinedButton.icon(
+                                onPressed: () {
+                                  context.read<EditorProvider>().addPage();
+                                },
+                                icon: const Icon(Icons.add),
+                                label: const Text("Add Page"),
+                                style: OutlinedButton.styleFrom(
+                                  backgroundColor: Colors.white54,
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 32, vertical: 16),
+                                ),
                               ),
-                            ),
-                          const SizedBox(
-                              height: 120), // More space for bottom sheet
-                        ],
+                            const SizedBox(
+                                height: 120), // More space for bottom sheet
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -161,6 +171,15 @@ class EditorScreen extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+
+  void _showAIChatSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => const AIChatSheet(),
     );
   }
 }
