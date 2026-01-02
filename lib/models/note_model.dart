@@ -12,6 +12,7 @@ class NoteDocument {
   final DateTime updatedAt;
   final List<NotePage> pages;
   final String? parentId; // null means root folder
+  final List<AIChatMessage> chatHistory;
 
   NoteDocument({
     required this.id,
@@ -20,6 +21,7 @@ class NoteDocument {
     required this.updatedAt,
     required this.pages,
     this.parentId,
+    this.chatHistory = const [],
   });
 
   NoteDocument copyWith({
@@ -27,6 +29,7 @@ class NoteDocument {
     DateTime? updatedAt,
     List<NotePage>? pages,
     String? parentId,
+    List<AIChatMessage>? chatHistory,
   }) {
     return NoteDocument(
       id: id,
@@ -35,6 +38,7 @@ class NoteDocument {
       updatedAt: updatedAt ?? this.updatedAt,
       pages: pages ?? this.pages,
       parentId: parentId ?? this.parentId,
+      chatHistory: chatHistory ?? this.chatHistory,
     );
   }
 
@@ -58,6 +62,7 @@ class NoteDocument {
       'updatedAt': updatedAt.toIso8601String(),
       'pages': pages.map((p) => p.toJson()).toList(),
       'parentId': parentId,
+      'chatHistory': chatHistory.map((m) => m.toJson()).toList(),
     };
   }
 
@@ -68,9 +73,13 @@ class NoteDocument {
       createdAt: DateTime.parse(json['createdAt'] as String),
       updatedAt: DateTime.parse(json['updatedAt'] as String),
       pages: (json['pages'] as List)
-          .map((p) => NotePage.fromJson(p as Map<String, dynamic>))
+          .map<NotePage>((p) => NotePage.fromJson(p as Map<String, dynamic>))
           .toList(),
       parentId: json['parentId'] as String?,
+      chatHistory: (json['chatHistory'] as List? ?? [])
+          .map<AIChatMessage>(
+              (m) => AIChatMessage.fromJson(m as Map<String, dynamic>))
+          .toList(),
     );
   }
 }
@@ -521,6 +530,34 @@ class DocumentMetadata {
       id: json['id'] as String,
       title: json['title'] as String,
       lastModified: DateTime.parse(json['lastModified'] as String),
+    );
+  }
+}
+
+class AIChatMessage {
+  final String text;
+  final bool isUser;
+  final DateTime timestamp;
+
+  AIChatMessage({
+    required this.text,
+    required this.isUser,
+    required this.timestamp,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'text': text,
+      'isUser': isUser,
+      'timestamp': timestamp.toIso8601String(),
+    };
+  }
+
+  factory AIChatMessage.fromJson(Map<String, dynamic> json) {
+    return AIChatMessage(
+      text: json['text'] as String,
+      isUser: json['isUser'] as bool,
+      timestamp: DateTime.parse(json['timestamp'] as String),
     );
   }
 }

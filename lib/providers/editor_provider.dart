@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:uuid/uuid.dart';
 import '../models/note_model.dart';
 import '../services/file_service.dart';
+import '../core/page_layout_engine.dart';
 
 enum EditorTool {
   select, // For text selection / moving images
@@ -207,6 +209,94 @@ class EditorProvider extends ChangeNotifier {
     _scheduleAutoSave();
   }
 
+  /// Appends text to the document, starting a new page if requested,
+  /// and automatically overflowing across pages as needed.
+  void appendTextWithOverflow(String text, {bool startNewPage = true}) {
+    if (_activeDocument == null) return;
+
+    if (startNewPage) {
+      addPage();
+    }
+
+    // Use current page as start
+    String targetPageId = _activePageId ?? _activeDocument!.pages.last.id;
+    double startX = 40.0; // Margin
+    double startY = 40.0; // Margin
+
+    _processTextInsertion(text, targetPageId, startX, startY);
+
+    notifyListeners();
+    _scheduleAutoSave();
+  }
+
+  void _processTextInsertion(String text, String pageId, double x, double y) {
+    TextBlock block = TextBlock(
+      id: const Uuid().v4(),
+      text: text,
+      x: x,
+      y: y,
+      width: PageLayoutEngine.contentWidth,
+    );
+
+    if (PageLayoutEngine.checkOverflow(block)) {
+      final split = PageLayoutEngine.splitBlock(block);
+      final remain = split['remain']!;
+      final moved = split['moved']!;
+
+      _addBlockToPage(pageId, remain);
+
+      // Create/Get next page
+      int currentPageIndex =
+          _activeDocument!.pages.indexWhere((p) => p.id == pageId);
+      NotePage nextPage;
+      if (currentPageIndex + 1 < _activeDocument!.pages.length) {
+        nextPage = _activeDocument!.pages[currentPageIndex + 1];
+      } else {
+        nextPage = NotePage.create(_activeDocument!.pages.length);
+        _activeDocument = _activeDocument!.copyWith(
+          pages: [..._activeDocument!.pages, nextPage],
+        );
+      }
+
+      // Recursive call for moved text on next page
+      _processTextInsertion(moved.text, nextPage.id, moved.x, moved.y);
+    } else {
+      _addBlockToPage(pageId, block);
+    }
+  }
+
+  void _addBlockToPage(String pageId, TextBlock block) {
+    final pageIndex = _activeDocument!.pages.indexWhere((p) => p.id == pageId);
+    if (pageIndex == -1) return;
+
+    final page = _activeDocument!.pages[pageIndex];
+    const textLayerIndex = 1;
+    final textLayer = page.layers[textLayerIndex] as TextLayer;
+
+    final updatedLayer =
+        textLayer.copyWith(blocks: [...textLayer.blocks, block]);
+    final updatedLayers = List<NoteLayer>.from(page.layers);
+    updatedLayers[textLayerIndex] = updatedLayer;
+
+    final updatedPage = page.copyWith(layers: updatedLayers);
+    final updatedPages = List<NotePage>.from(_activeDocument!.pages);
+    updatedPages[pageIndex] = updatedPage;
+
+    _activeDocument = _activeDocument!.copyWith(pages: updatedPages);
+  }
+
+  // --- AI Chat History ---
+
+  void addAIChatMessage(AIChatMessage message) {
+    if (_activeDocument == null) return;
+
+    final updatedHistory = [..._activeDocument!.chatHistory, message];
+    _activeDocument = _activeDocument!.copyWith(chatHistory: updatedHistory);
+
+    notifyListeners();
+    _scheduleAutoSave();
+  }
+
   // --- Auto-Save & Persistence ---
 
   /// Schedule an auto-save (debounced to prevent excessive writes)
@@ -256,6 +346,16 @@ class EditorProvider extends ChangeNotifier {
   Future<void> createNewDocumentWithTitle(String title,
       {String? parentId}) async {
     _activeDocument = NoteDocument.create(title: title, parentId: parentId);
+
+    // Add initial AI greeting
+    final greeting = AIChatMessage(
+      text:
+          "Hello! I'm your AI assistant. How can I help you with your document today?",
+      isUser: false,
+      timestamp: DateTime.now(),
+    );
+    _activeDocument = _activeDocument!.copyWith(chatHistory: [greeting]);
+
     _activePageId = _activeDocument!.pages.first.id;
     _activeLayerIndex = 1;
     notifyListeners();
