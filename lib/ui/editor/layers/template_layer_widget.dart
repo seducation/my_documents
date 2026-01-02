@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import '../../../constants.dart';
+import 'dart:io';
 import '../../../models/note_model.dart';
-import '../../../providers/editor_provider.dart';
 
 class TemplateLayerWidget extends StatelessWidget {
   final TemplateLayer layer;
@@ -11,29 +9,32 @@ class TemplateLayerWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Check if this layer is active in the provider
-    // Note: In our model, Template is Layer 0
-    final activeLayerIndex =
-        context.select((EditorProvider p) => p.activeLayerIndex);
-    final isActive = activeLayerIndex == 0;
-
-    // Opacity Logic
-    final double displayOpacity =
-        isActive ? 1.0 : AppConstants.inactiveLayerOpacity;
-
     return IgnorePointer(
-      ignoring: !isActive, // Locked if not active
-      child: Opacity(
-        opacity: displayOpacity,
-        child: Container(
-          color: Colors.white, // Base A4 White
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              // Grid Pattern (Simple placeholder for MVP)
+      ignoring: true, // Template is always locked for interaction
+      child: Container(
+        color: Colors.white, // Base A4 White
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            // 1. Background Image (from PDF Import)
+            if (layer.backgroundImagePath != null)
+              Image.file(
+                File(layer.backgroundImagePath!),
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) => const Center(
+                  child: Icon(Icons.broken_image, color: Colors.red),
+                ),
+              )
+            else if (layer.backgroundAsset != null)
+              Image.asset(
+                layer.backgroundAsset!,
+                fit: BoxFit.contain,
+              ),
+
+            // 2. Grid Pattern Overlay (Optional/Subtle)
+            if (layer.backgroundImagePath == null)
               CustomPaint(painter: GridPainter()),
-            ],
-          ),
+          ],
         ),
       ),
     );

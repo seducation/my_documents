@@ -11,6 +11,7 @@ import 'editor/editor_screen.dart';
 import 'widgets/document_name_dialog.dart';
 import 'widgets/document_tool_card.dart';
 import 'widgets/responsive_layout.dart';
+import '../services/share_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -23,6 +24,15 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _currentFolderId;
   List<FileSystemItem> _breadcrumbs = [];
   int _selectedIndex = 0; // For BottomNavigationBar
+
+  @override
+  void initState() {
+    super.initState();
+    // Initialize PDF sharing listener
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ShareService().init(context);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -370,7 +380,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _pickAndConvertPdf() async {
+  Future<void> _pickAndConvertPdf({String? parentId}) async {
     final result = await FilePicker.platform.pickFiles(
       allowMultiple: false,
       type: FileType.custom,
@@ -389,8 +399,8 @@ class _HomeScreenState extends State<HomeScreen> {
       );
 
       try {
-        final newDoc =
-            await PdfService.convertPdfToNoteDocument(file, fileName);
+        final newDoc = await PdfService.convertPdfToNoteDocument(file, fileName,
+            parentId: parentId);
         await FileService.saveDocument(newDoc);
 
         if (!mounted) return;
@@ -400,7 +410,10 @@ class _HomeScreenState extends State<HomeScreen> {
         editorProvider.setActiveDocument(newDoc);
 
         Navigator.of(context)
-            .push(MaterialPageRoute(builder: (_) => const EditorScreen()));
+            .push(MaterialPageRoute(builder: (_) => const EditorScreen()))
+            .then((_) {
+          if (mounted) setState(() {});
+        });
       } catch (e) {
         if (!mounted) return;
         Navigator.pop(context);
@@ -562,6 +575,14 @@ class _HomeScreenState extends State<HomeScreen> {
               onTap: () {
                 Navigator.pop(sheetContext);
                 _createNewDocument(parentContext);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.picture_as_pdf, color: Colors.red),
+              title: const Text('Import PDF'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                _pickAndConvertPdf(parentId: _currentFolderId);
               },
             ),
             ListTile(

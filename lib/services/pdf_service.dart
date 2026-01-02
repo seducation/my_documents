@@ -11,7 +11,8 @@ class PdfService {
   /// Converts a PDF file into a NoteDocument where each page of the PDF
   /// becomes a background template for a NotePage.
   static Future<NoteDocument> convertPdfToNoteDocument(
-      File pdfFile, String title) async {
+      File pdfFile, String title,
+      {String? parentId}) async {
     final document = await pdfx.PdfDocument.openFile(pdfFile.path);
     final List<NotePage> pages = [];
 
@@ -62,6 +63,7 @@ class PdfService {
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),
       pages: pages.isEmpty ? [NotePage.create(0)] : pages,
+      parentId: parentId,
       chatHistory: [],
     );
   }
