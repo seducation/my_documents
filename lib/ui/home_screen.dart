@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
+import 'package:file_picker/file_picker.dart';
 import '../providers/editor_provider.dart';
 import '../services/file_service.dart';
 import '../models/file_system_item.dart';
@@ -82,38 +83,41 @@ class _HomeScreenState extends State<HomeScreen> {
                         const SizedBox(height: 16),
 
                         // Tools ScrollView
-                        SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: Row(
-                            children: [
-                              DocumentToolCard(
-                                title: 'convert documents',
-                                icon: Icons.description_outlined,
-                                color: const Color(0xFF2E7D32), // Dark Green
-                                iconColor: Colors.white,
-                                backgroundColor:
-                                    const Color(0xFFE8F5E9), // Light Green
-                                onTap: () {}, // TODO: Implement
-                              ),
-                              DocumentToolCard(
-                                title: 'use other documents type',
-                                icon: Icons.translate, // Placeholder icon
-                                color: const Color(0xFF1565C0), // Dark Blue
-                                iconColor: Colors.white,
-                                backgroundColor:
-                                    const Color(0xFFE3F2FD), // Light Blue
-                                onTap: () {},
-                              ),
-                              DocumentToolCard(
-                                title: 'convert image to pdf',
-                                icon: Icons.share, // Placeholder
-                                color: const Color(0xFFC62828), // Dark Red
-                                iconColor: Colors.white,
-                                backgroundColor:
-                                    const Color(0xFFFFEBEE), // Light Red
-                                onTap: () {},
-                              ),
-                            ],
+                        SizedBox(
+                          height: 110,
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: [
+                                DocumentToolCard(
+                                  title: 'convert documents',
+                                  icon: Icons.description_outlined,
+                                  color: const Color(0xFF2E7D32), // Dark Green
+                                  iconColor: Colors.white,
+                                  backgroundColor:
+                                      const Color(0xFFE8F5E9), // Light Green
+                                  onTap: () => _showConversionOptions(context),
+                                ),
+                                DocumentToolCard(
+                                  title: 'use other documents type',
+                                  icon: Icons.translate, // Placeholder icon
+                                  color: const Color(0xFF1565C0), // Dark Blue
+                                  iconColor: Colors.white,
+                                  backgroundColor:
+                                      const Color(0xFFE3F2FD), // Light Blue
+                                  onTap: () {},
+                                ),
+                                DocumentToolCard(
+                                  title: 'convert image to pdf',
+                                  icon: Icons.share, // Placeholder
+                                  color: const Color(0xFFC62828), // Dark Red
+                                  iconColor: Colors.white,
+                                  backgroundColor:
+                                      const Color(0xFFFFEBEE), // Light Red
+                                  onTap: () {},
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                         const SizedBox(height: 32),
@@ -207,15 +211,23 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
-        onTap: (index) {
-          setState(() {
-            _selectedIndex = index;
-            // Handle navigation logic if needed (e.g., reset folder for "All documents")
-            if (index == 1) {
-              // Usually "All Documents" or "Files" might mean Root or Tree view
-              // For now just UI switching
+        onTap: (index) async {
+          if (index == 1) {
+            // "All documents" - Fetch all device documents
+            final result = await FilePicker.platform.pickFiles(
+              allowMultiple: true,
+              type: FileType.any, // Or limit to custom extensions
+            );
+
+            if (result != null) {
+              debugPrint('Picked ${result.files.length} files from device');
+              // Optionally do something with result.files
             }
-          });
+          } else {
+            setState(() {
+              _selectedIndex = index;
+            });
+          }
         },
         selectedItemColor: Colors.black,
         unselectedItemColor: Colors.grey,
@@ -298,20 +310,94 @@ class _HomeScreenState extends State<HomeScreen> {
       final editorProvider = context.read<EditorProvider>();
       await editorProvider.loadDocument(item.id);
       if (mounted) {
-        Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const EditorScreen()),
-        );
+        Navigator.of(context)
+            .push(MaterialPageRoute(builder: (_) => const EditorScreen()))
+            .then((_) {
+          if (mounted) setState(() {});
+        });
       }
     }
   }
 
-  void _showCreateOptions(BuildContext context) {
+  void _showConversionOptions(BuildContext parentContext) {
     showModalBottomSheet(
-      context: context,
+      context: parentContext,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) => SafeArea(
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 16.0),
+              child: Text(
+                'Convert Documents',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.picture_as_pdf, color: Colors.red),
+              title: const Text('Image to PDF'),
+              onTap: () async {
+                Navigator.pop(sheetContext);
+                final result = await FilePicker.platform.pickFiles(
+                  type: FileType.image,
+                  allowMultiple: true,
+                );
+                if (result != null && parentContext.mounted) {
+                  ScaffoldMessenger.of(parentContext).showSnackBar(
+                    SnackBar(
+                        content: Text(
+                            'Conversion of ${result.files.length} images to PDF simulated.')),
+                  );
+                }
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.description, color: Colors.blue),
+              title: const Text('Text to PDF'),
+              onTap: () async {
+                Navigator.pop(sheetContext);
+                final result = await FilePicker.platform.pickFiles(
+                  type: FileType.custom,
+                  allowedExtensions: ['txt'],
+                );
+                if (result != null && parentContext.mounted) {
+                  ScaffoldMessenger.of(parentContext).showSnackBar(
+                    const SnackBar(
+                        content: Text('Text to PDF conversion simulated.')),
+                  );
+                }
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.compare_arrows, color: Colors.green),
+              title: const Text('Other Formats (Coming Soon)'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                if (parentContext.mounted) {
+                  ScaffoldMessenger.of(parentContext).showSnackBar(
+                    const SnackBar(
+                        content: Text('More conversion options coming soon!')),
+                  );
+                }
+              },
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showCreateOptions(BuildContext parentContext) {
+    showModalBottomSheet(
+      context: parentContext,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -319,16 +405,16 @@ class _HomeScreenState extends State<HomeScreen> {
               leading: const Icon(Icons.note_add, color: Colors.orange),
               title: const Text('New Document'),
               onTap: () {
-                Navigator.pop(context);
-                _createNewDocument(context);
+                Navigator.pop(sheetContext);
+                _createNewDocument(parentContext);
               },
             ),
             ListTile(
               leading: const Icon(Icons.create_new_folder, color: Colors.blue),
               title: const Text('New Folder'),
               onTap: () {
-                Navigator.pop(context);
-                _createNewFolder(context);
+                Navigator.pop(sheetContext);
+                _createNewFolder(parentContext);
               },
             ),
           ],
@@ -360,7 +446,10 @@ class _HomeScreenState extends State<HomeScreen> {
         parentId: _currentFolderId);
     if (context.mounted) {
       Navigator.of(context)
-          .push(MaterialPageRoute(builder: (_) => const EditorScreen()));
+          .push(MaterialPageRoute(builder: (_) => const EditorScreen()))
+          .then((_) {
+        if (mounted) setState(() {});
+      });
     }
   }
 

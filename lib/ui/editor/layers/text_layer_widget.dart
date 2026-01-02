@@ -16,10 +16,12 @@ class TextLayerWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     final activeLayerIndex =
         context.select((EditorProvider p) => p.activeLayerIndex);
-    final isActive = activeLayerIndex == 1; // Text Layer is 1
+    final isEditMode = context.select((EditorProvider p) => p.isEditMode);
+    final isActive = activeLayerIndex == 1 &&
+        isEditMode; // Text Layer is 1 and Edit Mode is on
 
     final double displayOpacity =
-        isActive ? 1.0 : AppConstants.inactiveLayerOpacity;
+        (activeLayerIndex == 1) ? 1.0 : AppConstants.inactiveLayerOpacity;
 
     return IgnorePointer(
       ignoring: !isActive,
@@ -138,8 +140,10 @@ class _EditableTextBlockState extends State<_EditableTextBlock> {
 
   @override
   Widget build(BuildContext context) {
+    final isEditMode = context.select((EditorProvider p) => p.isEditMode);
     return TextField(
       controller: _controller,
+      enabled: isEditMode,
       decoration: const InputDecoration(
         border: InputBorder.none,
         contentPadding: EdgeInsets.zero,

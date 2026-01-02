@@ -253,12 +253,13 @@ class EditorProvider extends ChangeNotifier {
   }
 
   /// Create a new document with a given title
-  void createNewDocumentWithTitle(String title, {String? parentId}) {
+  Future<void> createNewDocumentWithTitle(String title,
+      {String? parentId}) async {
     _activeDocument = NoteDocument.create(title: title, parentId: parentId);
     _activePageId = _activeDocument!.pages.first.id;
     _activeLayerIndex = 1;
     notifyListeners();
-    saveCurrentDocument(); // Save immediately after creation
+    await saveCurrentDocument(); // Save immediately after creation
   }
 
   @override
