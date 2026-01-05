@@ -72,7 +72,7 @@ class TextLayerWidget extends StatelessWidget {
     final newLayer = layer.copyWith(
       blocks: [...layer.blocks, newBlock],
     );
-    provider.updateLayer(newLayer);
+    provider.updateLayer(newLayer, pageId: pageId);
   }
 
   void _updateBlockText(BuildContext context, TextBlock block, String newText) {
@@ -102,7 +102,7 @@ class TextLayerWidget extends StatelessWidget {
 
     final newBlocks =
         layer.blocks.map((b) => b.id == block.id ? updatedBlock : b).toList();
-    provider.updateLayer(layer.copyWith(blocks: newBlocks));
+    provider.updateLayer(layer.copyWith(blocks: newBlocks), pageId: pageId);
   }
 }
 

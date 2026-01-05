@@ -136,13 +136,20 @@ class EditorProvider extends ChangeNotifier {
 
   // --- Editing Actions ---
 
-  /// Generic update for the current page's specific layer
-  void updateLayer(NoteLayer updatedLayer, {int? specificPageIndex}) {
+  /// Generic update for a specific page's layer.
+  /// If [pageId] is provided, updates that page; otherwise uses [_activePageId].
+  void updateLayer(NoteLayer updatedLayer,
+      {String? pageId, int? specificPageIndex}) {
     if (_activeDocument == null) return;
 
+    final targetPageId = pageId ?? _activePageId;
     final pageIndex = specificPageIndex ??
-        _activeDocument!.pages.indexWhere((p) => p.id == _activePageId);
-    if (pageIndex == -1) return;
+        _activeDocument!.pages.indexWhere((p) => p.id == targetPageId);
+    if (pageIndex == -1) {
+      debugPrint(
+          'Warning: Attempted to update layer on non-existent page: $targetPageId');
+      return;
+    }
 
     final oldPage = _activeDocument!.pages[pageIndex];
 
@@ -318,7 +325,7 @@ class EditorProvider extends ChangeNotifier {
 
     final updatedLayer = commentLayer
         .copyWith(annotations: [...commentLayer.annotations, newComment]);
-    updateLayer(updatedLayer);
+    updateLayer(updatedLayer, pageId: pageId);
   }
 
   Color _getNextCommentColor() {
@@ -346,7 +353,7 @@ class EditorProvider extends ChangeNotifier {
     final updatedAnnotations =
         commentLayer.annotations.where((a) => a.id != commentId).toList();
     final updatedLayer = commentLayer.copyWith(annotations: updatedAnnotations);
-    updateLayer(updatedLayer);
+    updateLayer(updatedLayer, pageId: pageId);
   }
 
   // --- Image Import ---

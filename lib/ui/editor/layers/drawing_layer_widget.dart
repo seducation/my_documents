@@ -124,10 +124,11 @@ class _DrawingLayerWidgetState extends State<DrawingLayerWidget> {
     final newLayer = widget.layer.copyWith(
       strokes: [...widget.layer.strokes, newStroke],
     );
-    provider.updateLayer(newLayer);
+    provider.updateLayer(newLayer, pageId: widget.pageId);
   }
 
   void _eraseAt(Offset point) {
+    final provider = context.read<EditorProvider>();
     const double eraseRadius = 20.0;
     final newStrokes = widget.layer.strokes.where((stroke) {
       for (final p in stroke.points) {
@@ -140,7 +141,7 @@ class _DrawingLayerWidgetState extends State<DrawingLayerWidget> {
 
     if (newStrokes.length != widget.layer.strokes.length) {
       final newLayer = widget.layer.copyWith(strokes: newStrokes);
-      context.read<EditorProvider>().updateLayer(newLayer);
+      provider.updateLayer(newLayer, pageId: widget.pageId);
     }
   }
 }

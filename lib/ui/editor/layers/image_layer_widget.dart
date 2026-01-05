@@ -123,6 +123,6 @@ class _NoteImageItem extends StatelessWidget {
     final newImages = layer.images
         .map((img) => img.id == image.id ? updatedImage : img)
         .toList();
-    provider.updateLayer(layer.copyWith(images: newImages));
+    provider.updateLayer(layer.copyWith(images: newImages), pageId: pageId);
   }
 }
