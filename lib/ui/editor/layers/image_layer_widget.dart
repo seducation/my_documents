@@ -22,16 +22,18 @@ class ImageLayerWidget extends StatelessWidget {
       ignoring: !isActive,
       child: Stack(
         children: layer.images.map((image) {
+          const double handlePadding = 20.0;
           return Positioned(
-            left: image.x,
-            top: image.y,
-            width: image.width,
-            height: image.height,
+            left: image.x - handlePadding,
+            top: image.y - handlePadding,
+            width: image.width + (handlePadding * 2),
+            height: image.height + (handlePadding * 2),
             child: _NoteImageItem(
               image: image,
               pageId: pageId,
               isActive: isActive,
               layer: layer,
+              handlePadding: handlePadding,
             ),
           );
         }).toList(),
@@ -45,12 +47,14 @@ class _NoteImageItem extends StatelessWidget {
   final String pageId;
   final bool isActive;
   final ImageLayer layer;
+  final double handlePadding;
 
   const _NoteImageItem({
     required this.image,
     required this.pageId,
     required this.isActive,
     required this.layer,
+    required this.handlePadding,
   });
 
   @override
@@ -61,39 +65,44 @@ class _NoteImageItem extends StatelessWidget {
       clipBehavior: Clip.none,
       children: [
         // Main Drag Area
-        GestureDetector(
-          onPanUpdate: isActive
-              ? (details) {
-                  final newImage = image.copyWith(
-                    x: image.x + details.delta.dx,
-                    y: image.y + details.delta.dy,
-                  );
-                  _updateImage(provider, newImage);
-                }
-              : null,
-          child: Container(
-            decoration: BoxDecoration(
-              border: Border.all(
-                color:
-                    isActive ? Colors.blue : Colors.grey.withValues(alpha: 0.5),
-                width: isActive ? 2 : 1,
+        Padding(
+          padding: EdgeInsets.all(handlePadding),
+          child: GestureDetector(
+            onPanUpdate: isActive
+                ? (details) {
+                    final newImage = image.copyWith(
+                      x: image.x + details.delta.dx,
+                      y: image.y + details.delta.dy,
+                    );
+                    _updateImage(provider, newImage);
+                  }
+                : null,
+            child: Container(
+              decoration: BoxDecoration(
+                border: Border.all(
+                  color: isActive
+                      ? Colors.blue
+                      : Colors.grey.withValues(alpha: 0.5),
+                  width: isActive ? 2 : 1,
+                ),
               ),
+              child: image.path.startsWith('http')
+                  ? Image.network(image.path,
+                      fit: BoxFit.cover,
+                      errorBuilder: (c, e, s) => const Icon(Icons.broken_image))
+                  : Image.file(File(image.path),
+                      fit: BoxFit.cover,
+                      errorBuilder: (c, e, s) =>
+                          const Icon(Icons.broken_image)),
             ),
-            child: image.path.startsWith('http')
-                ? Image.network(image.path,
-                    fit: BoxFit.cover,
-                    errorBuilder: (c, e, s) => const Icon(Icons.broken_image))
-                : Image.file(File(image.path),
-                    fit: BoxFit.cover,
-                    errorBuilder: (c, e, s) => const Icon(Icons.broken_image)),
           ),
         ),
 
         // Resize Handle (Bottom-Right)
         if (isActive)
           Positioned(
-            right: -10,
-            bottom: -10,
+            right: handlePadding - 10,
+            bottom: handlePadding - 10,
             child: GestureDetector(
               onPanUpdate: (details) {
                 final newImage = image.copyWith(
